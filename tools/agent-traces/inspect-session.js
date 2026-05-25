@@ -15,7 +15,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const initSqlJs = require('sql.js');
+const readline = require('readline');
+const Database = require('better-sqlite3');
 
 function parseArgs(argv) {
   const args = { traces: null, store: null, sessionId: null };
@@ -30,16 +31,9 @@ function parseArgs(argv) {
   return args;
 }
 
-function openDb(SQL, p) {
+function openDb(p) {
   if (!fs.existsSync(p)) return null;
-  return new SQL.Database(fs.readFileSync(p));
-}
-
-function warnIfWal(p) {
-  const w = p + '-wal';
-  if (fs.existsSync(w) && fs.statSync(w).size > 0) {
-    console.error(`Note: WAL present for ${path.basename(p)} (${fs.statSync(w).size} bytes). Recent writes may be missing — close VS Code or use a WAL-aware client for fresh data.`);
-  }
+  return new Database(p, { readonly: true });
 }
 
 function fmt(n) {
@@ -50,21 +44,10 @@ function isoMs(ms) {
   return ms ? new Date(Number(ms)).toISOString().replace('T', ' ').replace(/\.\d+Z$/, 'Z') : '';
 }
 
-function rows(res) {
-  if (!res || res.length === 0) return [];
-  const cols = res[0].columns;
-  return res[0].values.map(v => Object.fromEntries(cols.map((c, i) => [c, v[i]])));
-}
-
-function safeRows(db, sql, params) {
-  try { return rows(db.exec(sql, params)); }
-  catch (e) { return { error: e.message }; }
-}
-
 function hasTable(db, name) {
   try {
-    const r = db.exec(`SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name = $n`, { $n: name });
-    return r.length > 0 && r[0].values.length > 0;
+    const r = db.prepare(`SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name = ?`).get(name);
+    return !!r;
   } catch { return false; }
 }
 
@@ -82,21 +65,66 @@ function table(headers, data) {
   }
 }
 
-async function main() {
+/**
+ * Scan debug-logs for first user_message of each session.
+ * Structure: workspaceStorage/<hash>/GitHub.copilot-chat/debug-logs/<session-id>/main.jsonl
+ * @param {string[]} sessionIds - session IDs to look for
+ * @returns {Object} map of session_id -> first user message content
+ */
+function getFirstUserMessagesFromDebugLogs(sessionIds) {
+  const result = {};
+  const needed = new Set(sessionIds);
+  if (needed.size === 0) return result;
+
+  const wsBase = path.join(process.env.APPDATA || '', 'Code', 'User', 'workspaceStorage');
+  if (!fs.existsSync(wsBase)) return result;
+
+  // Scan all workspaceStorage folders
+  for (const wsDir of fs.readdirSync(wsBase)) {
+    const debugLogsPath = path.join(wsBase, wsDir, 'GitHub.copilot-chat', 'debug-logs');
+    if (!fs.existsSync(debugLogsPath)) continue;
+
+    for (const sessionDir of fs.readdirSync(debugLogsPath)) {
+      if (!needed.has(sessionDir)) continue; // Skip if not in our list
+
+      const mainJsonl = path.join(debugLogsPath, sessionDir, 'main.jsonl');
+      if (!fs.existsSync(mainJsonl)) continue;
+
+      // Read line by line until we find first user_message
+      try {
+        const content = fs.readFileSync(mainJsonl, 'utf8');
+        for (const line of content.split('\n')) {
+          if (!line.trim()) continue;
+          try {
+            const event = JSON.parse(line);
+            if (event.type === 'user_message' && event.attrs?.content) {
+              const msg = event.attrs.content.replace(/\r?\n/g, ' ').trim();
+              result[sessionDir] = msg.length > 60 ? msg.slice(0, 57) + '…' : msg;
+              needed.delete(sessionDir);
+              break;
+            }
+          } catch {}
+        }
+      } catch {}
+
+      if (needed.size === 0) return result; // Found all
+    }
+  }
+
+  return result;
+}
+
+function main() {
   const { traces, store, sessionId } = parseArgs(process.argv.slice(2));
-  const SQL = await initSqlJs({ locateFile: f => path.join(__dirname, 'node_modules', 'sql.js', 'dist', f) });
 
-  warnIfWal(traces);
-  warnIfWal(store);
-
-  const tdb = openDb(SQL, traces);
+  const tdb = openDb(traces);
   if (!tdb) { console.error('agent-traces.db not found:', traces); process.exit(1); }
-  const sdb = openDb(SQL, store);
+  const sdb = openDb(store);
 
   if (!sessionId) {
     console.log('# 5 Latest Sessions\n');
     console.log(`_Source: ${traces}_\n`);
-    const r = rows(tdb.exec(`
+    const r = tdb.prepare(`
       SELECT
         chat_session_id AS session_id,
         MIN(start_time_ms) AS started,
@@ -118,11 +146,53 @@ async function main() {
       GROUP BY chat_session_id
       ORDER BY started DESC
       LIMIT 5
-    `));
+    `).all();
     if (r.length === 0) { console.log('_No sessions found._'); return; }
+
+    // Look up session names from session-store.db if available
+    // Use summary first, fall back to first user message
+    const summaryMap = {};
+    if (sdb && hasTable(sdb, 'sessions')) {
+      const ids = r.map(x => x.session_id);
+      const placeholders = ids.map(() => '?').join(',');
+      const summaryRows = sdb.prepare(`SELECT id, summary FROM sessions WHERE id IN (${placeholders})`).all(...ids);
+      for (const row of summaryRows) {
+        summaryMap[row.id] = row.summary;
+      }
+      // Fall back to first user message for sessions without a summary
+      if (hasTable(sdb, 'turns')) {
+        const missingIds = ids.filter(id => !summaryMap[id]);
+        if (missingIds.length > 0) {
+          const mp = missingIds.map(() => '?').join(',');
+          const turnRows = sdb.prepare(`
+            SELECT session_id, user_message 
+            FROM turns 
+            WHERE session_id IN (${mp}) AND turn_index = 0
+          `).all(...missingIds);
+          for (const row of turnRows) {
+            if (!summaryMap[row.session_id] && row.user_message) {
+              // Truncate to 60 chars for readability
+              const msg = row.user_message.replace(/\r?\n/g, ' ').trim();
+              summaryMap[row.session_id] = msg.length > 60 ? msg.slice(0, 57) + '…' : msg;
+            }
+          }
+        }
+      }
+    }
+
+    // Final fallback: scan debug-logs for first user_message
+    const ids = r.map(x => x.session_id);
+    const stillMissing = ids.filter(id => !summaryMap[id]);
+    if (stillMissing.length > 0) {
+      const fromDebugLogs = getFirstUserMessagesFromDebugLogs(stillMissing);
+      for (const [id, msg] of Object.entries(fromDebugLogs)) {
+        summaryMap[id] = msg;
+      }
+    }
+
     table(
-      ['session_id', 'started', 'dur_min', 'model', 'llm_calls', 'tool_calls', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens'],
-      r.map(x => ({ ...x, started: isoMs(x.started) }))
+      ['session_id', 'name', 'started', 'dur_min', 'model', 'llm_calls', 'tool_calls', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens'],
+      r.map(x => ({ ...x, name: summaryMap[x.session_id] || '', started: isoMs(x.started) }))
     );
     console.log('\nRun again with a `session_id` from the table above for a detailed report.');
     return;
@@ -130,18 +200,16 @@ async function main() {
 
   // Detailed report
   const sid = sessionId;
-  const where = `(chat_session_id = $sid OR conversation_id = $sid)`;
-  const param = { $sid: sid };
 
-  const overview = rows(tdb.exec(`
+  const overview = tdb.prepare(`
     SELECT
       MIN(start_time_ms) AS started,
       MAX(end_time_ms)   AS ended,
       ROUND((MAX(end_time_ms)-MIN(start_time_ms))/60000.0, 1) AS dur_min,
       MAX(agent_name) AS agent_name,
       COUNT(*) AS span_count
-    FROM spans WHERE ${where}
-  `, param))[0];
+    FROM spans WHERE chat_session_id = ? OR conversation_id = ?
+  `).get(sid, sid);
 
   if (!overview || !overview.span_count) {
     console.log(`# Session ${sid}\n\n_No spans found in agent-traces.db._`);
@@ -163,7 +231,7 @@ async function main() {
     console.error('Note: session-store.db schema not visible (likely all in WAL). Conversation/files/checkpoints sections skipped.');
   }
   if (storeAvailable) {
-    storeSession = rows(sdb.exec(`SELECT cwd, repository, host_type, branch, summary, agent_name, created_at, updated_at FROM sessions WHERE id = $sid`, param))[0];
+    storeSession = sdb.prepare(`SELECT cwd, repository, host_type, branch, summary, agent_name, created_at, updated_at FROM sessions WHERE id = ?`).get(sid);
     if (storeSession) {
       if (storeSession.repository) console.log(`- **Repo:** ${storeSession.repository}${storeSession.branch ? ` · **Branch:** ${storeSession.branch}` : ''}`);
       if (storeSession.cwd) console.log(`- **CWD:** \`${storeSession.cwd}\``);
@@ -174,7 +242,7 @@ async function main() {
 
   // Per-model LLM stats
   console.log('## LLM Calls by Model\n');
-  const byModel = rows(tdb.exec(`
+  const byModel = tdb.prepare(`
     SELECT
       COALESCE(s.response_model, s.request_model, '(unknown)') AS model,
       COUNT(*) AS calls,
@@ -188,10 +256,10 @@ async function main() {
     LEFT JOIN span_attributes a
       ON a.span_id = s.span_id
      AND a.key = 'gen_ai.usage.cache_creation.input_tokens'
-    WHERE s.operation_name = 'chat' AND ${where}
+    WHERE s.operation_name = 'chat' AND (s.chat_session_id = ? OR s.conversation_id = ?)
     GROUP BY model
     ORDER BY calls DESC
-  `, param));
+  `).all(sid, sid);
   if (byModel.length === 0) {
     console.log('_No chat spans._');
   } else {
@@ -210,16 +278,16 @@ async function main() {
 
   // Tool calls
   console.log('## Tool Calls\n');
-  const byTool = rows(tdb.exec(`
+  const byTool = tdb.prepare(`
     SELECT
       COALESCE(tool_name, '(unknown)') AS tool_name,
       COUNT(*) AS calls,
       SUM(CASE WHEN status_code = 2 THEN 1 ELSE 0 END) AS errors
     FROM spans
-    WHERE operation_name = 'execute_tool' AND ${where}
+    WHERE operation_name = 'execute_tool' AND (chat_session_id = ? OR conversation_id = ?)
     GROUP BY tool_name
     ORDER BY calls DESC
-  `, param));
+  `).all(sid, sid);
   if (byTool.length === 0) {
     console.log('_No tool spans._');
   } else {
@@ -231,12 +299,12 @@ async function main() {
   console.log('');
 
   // Errors detail
-  const errs = rows(tdb.exec(`
+  const errs = tdb.prepare(`
     SELECT operation_name, tool_name, status_message
     FROM spans
-    WHERE status_code = 2 AND ${where}
+    WHERE status_code = 2 AND (chat_session_id = ? OR conversation_id = ?)
     ORDER BY start_time_ms
-  `, param));
+  `).all(sid, sid);
   if (errs.length) {
     console.log('## Errors\n');
     for (const e of errs) {
@@ -247,7 +315,7 @@ async function main() {
 
   // Conversation from session-store.db
   if (storeAvailable) {
-    const turns = rows(sdb.exec(`SELECT turn_index, user_message, length(assistant_response) AS resp_len, timestamp FROM turns WHERE session_id = $sid ORDER BY turn_index`, param));
+    const turns = sdb.prepare(`SELECT turn_index, user_message, length(assistant_response) AS resp_len, timestamp FROM turns WHERE session_id = ? ORDER BY turn_index`).all(sid);
     if (turns.length) {
       console.log('## Turns (from session-store.db)\n');
       const userTurns = turns.filter(t => t.user_message && t.user_message.trim());
@@ -261,21 +329,21 @@ async function main() {
       console.log('');
     }
 
-    const files = rows(sdb.exec(`SELECT file_path, tool_name, COUNT(*) AS touches FROM session_files WHERE session_id = $sid GROUP BY file_path ORDER BY touches DESC LIMIT 20`, param));
+    const files = sdb.prepare(`SELECT file_path, tool_name, COUNT(*) AS touches FROM session_files WHERE session_id = ? GROUP BY file_path ORDER BY touches DESC LIMIT 20`).all(sid);
     if (files.length) {
       console.log('## Tracked Files (top 20)\n');
       table(['file_path', 'tool_name', 'touches'], files);
       console.log('');
     }
 
-    const refs = rows(sdb.exec(`SELECT ref_type, COUNT(*) AS n FROM session_refs WHERE session_id = $sid GROUP BY ref_type ORDER BY n DESC`, param));
+    const refs = sdb.prepare(`SELECT ref_type, COUNT(*) AS n FROM session_refs WHERE session_id = ? GROUP BY ref_type ORDER BY n DESC`).all(sid);
     if (refs.length) {
       console.log('## References\n');
       table(['ref_type', 'n'], refs);
       console.log('');
     }
 
-    const cps = rows(sdb.exec(`SELECT checkpoint_number, title, created_at FROM checkpoints WHERE session_id = $sid ORDER BY checkpoint_number`, param));
+    const cps = sdb.prepare(`SELECT checkpoint_number, title, created_at FROM checkpoints WHERE session_id = ? ORDER BY checkpoint_number`).all(sid);
     if (cps.length) {
       console.log('## Checkpoints\n');
       table(['checkpoint_number', 'title', 'created_at'], cps);
@@ -284,6 +352,9 @@ async function main() {
   } else {
     console.log('_session-store.db not available or schema not visible — conversation/files/checkpoints omitted._\n');
   }
+
+  tdb.close();
+  if (sdb) sdb.close();
 }
 
-main().catch(err => { console.error(err); process.exit(1); });
+main();
