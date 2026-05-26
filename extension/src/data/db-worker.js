@@ -51,7 +51,7 @@ function handleRequest(req) {
     switch (action) {
       case 'open': {
         const db = new Database(req.dbPath, { readonly: true, fileMustExist: true });
-        db.pragma('journal_mode = WAL');
+        db.pragma('busy_timeout = 3000');
         const handle = ++dbCounter;
         databases.set(handle, db);
         respond(id, { handle });

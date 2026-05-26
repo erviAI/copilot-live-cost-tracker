@@ -137,10 +137,15 @@ export class Aggregator {
    * Build recent session summaries from spans.
    */
   private buildRecentSessions(spans: Span[], titles: Map<string, string>): SessionInfo[] {
+    // Only include spans that belong to a real chat session (have chat_session_id).
+    // Spans with only conversation_id are background/inline completions, not user sessions.
+    const chatSpans = spans.filter(s => s.chatSessionId !== null);
+    const conversationToChat = buildConversationToChatMap(chatSpans);
+
     // Group spans by session
     const sessions = new Map<string, Span[]>();
-    for (const span of spans) {
-      const id = span.conversationId ?? span.chatSessionId ?? 'unknown';
+    for (const span of chatSpans) {
+      const id = getCanonicalSessionId(span, conversationToChat);
       const existing = sessions.get(id) ?? [];
       existing.push(span);
       sessions.set(id, existing);
@@ -174,6 +179,22 @@ export class Aggregator {
 
 function matchesSession(span: Span, sessionId: string): boolean {
   return span.chatSessionId === sessionId || span.conversationId === sessionId;
+}
+
+function getCanonicalSessionId(span: Span, conversationToChat: Map<string, string>): string {
+  if (span.chatSessionId) return span.chatSessionId;
+  if (span.conversationId) return conversationToChat.get(span.conversationId) ?? span.conversationId;
+  return 'unknown';
+}
+
+function buildConversationToChatMap(spans: Span[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const span of spans) {
+    if (span.conversationId && span.chatSessionId && !map.has(span.conversationId)) {
+      map.set(span.conversationId, span.chatSessionId);
+    }
+  }
+  return map;
 }
 
 function startOfDay(date: Date): Date {

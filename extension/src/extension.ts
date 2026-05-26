@@ -21,11 +21,9 @@ export function activate(context: vscode.ExtensionContext): void {
   // --- Data Layer ---
   const spanRepo = new AgentTracesRepository(appDataPath);
   const sessionStoreRepo = new SessionStoreRepository(appDataPath);
-  // state.vscdb is at the workspace storage root (parent of extension-specific folder)
-  const workspaceStorageRoot = context.storageUri
-    ? path.dirname(context.storageUri.fsPath)
-    : null;
-  const stateRepo = new StateRepository(workspaceStorageRoot);
+  // Resolve title sources from the same appData base as other Copilot DBs.
+  const workspaceStorageRoot = path.join(appDataPath, 'Code', 'User', 'workspaceStorage');
+  const stateRepo = new StateRepository(workspaceStorageRoot, appDataPath);
 
   // --- Domain Layer ---
   const pricingEngine = new PricingEngine(getPricingOverrides());

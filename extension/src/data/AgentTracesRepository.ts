@@ -86,11 +86,11 @@ export class AgentTracesRepository implements ISpanRepository {
 
     // First get the most recent session IDs
     const sessionsSql = `
-      SELECT DISTINCT COALESCE(conversation_id, chat_session_id) AS session_id,
+      SELECT DISTINCT COALESCE(chat_session_id, conversation_id) AS session_id,
              MAX(start_time_ms) AS last_activity
       FROM spans
       WHERE operation_name = 'chat'
-      GROUP BY COALESCE(conversation_id, chat_session_id)
+      GROUP BY COALESCE(chat_session_id, conversation_id)
       ORDER BY last_activity DESC
       LIMIT ?
     `;

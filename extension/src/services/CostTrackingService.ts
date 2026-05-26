@@ -84,7 +84,8 @@ export class CostTrackingService implements vscode.Disposable {
       // Detect current session: most recent activity
       this.currentSessionId = this.detectCurrentSession(spans);
 
-      // Resolve session titles
+      // Invalidate title cache so new/renamed sessions are picked up
+      this.titleResolver.invalidateCache();
       const titles = await this.titleResolver.getAllTitles();
 
       // Build dashboard
@@ -115,7 +116,7 @@ export class CostTrackingService implements vscode.Disposable {
     const oneHourAgo = Date.now() - 60 * 60 * 1000;
     if (latest.startTimeMs < oneHourAgo) return null;
 
-    return latest.conversationId ?? latest.chatSessionId ?? null;
+    return latest.chatSessionId ?? latest.conversationId ?? null;
   }
 
   private emptyDashboard(): DashboardData {
