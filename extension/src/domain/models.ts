@@ -1,0 +1,104 @@
+/**
+ * Domain models for the Copilot Cost Tracker.
+ * All types are plain data structures — no behavior.
+ */
+
+/** Raw span data from agent-traces.db */
+export interface Span {
+  spanId: string;
+  traceId: string;
+  operationName: string;
+  requestModel: string | null;
+  responseModel: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
+  startTimeMs: number;
+  endTimeMs: number;
+  ttftMs: number | null;
+  chatSessionId: string | null;
+  conversationId: string | null;
+  turnIndex: number | null;
+  statusCode: number;
+  statusMessage: string | null;
+  toolName: string | null;
+}
+
+/** Per-model token and cost aggregate */
+export interface ModelCost {
+  model: string;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  freshInputCost: number;
+  cacheReadCost: number;
+  cacheWriteCost: number;
+  outputCost: number;
+  totalCost: number;
+}
+
+/** Aggregated cost data for a time period */
+export interface PeriodCost {
+  totalCost: number;
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  byModel: ModelCost[];
+}
+
+/** Session summary for the recent sessions list */
+export interface SessionInfo {
+  sessionId: string;
+  title: string;
+  model: string | null;
+  agentName: string | null;
+  startedAt: number;
+  endedAt: number;
+  totalCost: number;
+  requests: number;
+}
+
+/** Daily bucket for the 7-day chart */
+export interface DailyBucket {
+  date: string; // YYYY-MM-DD
+  dayLabel: string; // e.g. "Mon", "Tue"
+  totalCost: number;
+  requests: number;
+}
+
+/** Complete dashboard state sent to the webview */
+export interface DashboardData {
+  today: PeriodCost;
+  thisWeek: PeriodCost;
+  currentSession: PeriodCost & { sessionId: string | null };
+  last7Days: DailyBucket[];
+  recentSessions: SessionInfo[];
+  updatedAt: string; // ISO timestamp
+}
+
+/** Budget threshold configuration */
+export interface BudgetThresholds {
+  session: { warning: number; limit: number };
+  daily: { warning: number; limit: number };
+  weekly: { warning: number; limit: number };
+}
+
+/** Budget alert state */
+export interface BudgetState {
+  sessionLevel: 'ok' | 'warning' | 'limit';
+  dailyLevel: 'ok' | 'warning' | 'limit';
+  weeklyLevel: 'ok' | 'warning' | 'limit';
+}
+
+/** Pricing rates for a model (all per 1M tokens) */
+export interface ModelPricing {
+  input: number;
+  output: number;
+  cached: number;
+  cacheWrite?: number;
+}
