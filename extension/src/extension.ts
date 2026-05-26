@@ -5,6 +5,7 @@ import * as os from 'os';
 import { AgentTracesRepository } from './data/AgentTracesRepository.js';
 import { SessionStoreRepository } from './data/SessionStoreRepository.js';
 import { StateRepository } from './data/StateRepository.js';
+import { disposeWorker } from './data/sqlite.js';
 import { PricingEngine } from './domain/PricingEngine.js';
 import { CostCalculator } from './domain/CostCalculator.js';
 import { Aggregator } from './domain/Aggregator.js';
@@ -20,7 +21,11 @@ export function activate(context: vscode.ExtensionContext): void {
   // --- Data Layer ---
   const spanRepo = new AgentTracesRepository(appDataPath);
   const sessionStoreRepo = new SessionStoreRepository(appDataPath);
-  const stateRepo = new StateRepository(context.globalStorageUri.fsPath);
+  // state.vscdb is at the workspace storage root (parent of extension-specific folder)
+  const workspaceStorageRoot = context.storageUri
+    ? path.dirname(context.storageUri.fsPath)
+    : null;
+  const stateRepo = new StateRepository(workspaceStorageRoot);
 
   // --- Domain Layer ---
   const pricingEngine = new PricingEngine(getPricingOverrides());
@@ -100,7 +105,7 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {
-  // All cleanup handled via disposables
+  disposeWorker();
 }
 
 function getAppDataPath(): string {

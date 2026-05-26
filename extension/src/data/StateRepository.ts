@@ -1,34 +1,40 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import type { ISessionTitleResolver } from './interfaces.js';
 import { openDatabase, type Database } from './sqlite.js';
 
 /**
  * Resolves session display titles from VS Code's state.vscdb.
  * The titles are stored in a JSON blob under a known key.
+ * Non-fatal: returns empty titles if the database is unavailable.
  */
 export class StateRepository implements ISessionTitleResolver {
   private db: Database | null = null;
   private cache: Map<string, string> | null = null;
-  private readonly dbPath: string;
+  private readonly dbPath: string | null;
 
-  constructor(workspaceStoragePath: string) {
+  constructor(workspaceStorageRoot: string | null) {
     // state.vscdb is at the root of the workspace storage folder
-    this.dbPath = `${workspaceStoragePath}/state.vscdb`;
+    this.dbPath = workspaceStorageRoot
+      ? path.join(workspaceStorageRoot, 'state.vscdb')
+      : null;
   }
 
-  private async getDb(): Promise<Database> {
-    if (!this.db) {
+  private async getDb(): Promise<Database | null> {
+    if (!this.dbPath) return null;
+    if (this.db) return this.db;
+    if (!fs.existsSync(this.dbPath)) return null;
+    try {
       this.db = await openDatabase(this.dbPath);
+      return this.db;
+    } catch {
+      return null;
     }
-    return this.db;
   }
 
   async isAvailable(): Promise<boolean> {
-    try {
-      const db = await this.getDb();
-      return db !== null;
-    } catch {
-      return false;
-    }
+    const db = await this.getDb();
+    return db !== null;
   }
 
   async getTitle(sessionId: string): Promise<string | null> {
@@ -41,11 +47,14 @@ export class StateRepository implements ISessionTitleResolver {
       return this.cache;
     }
 
+    const titles = new Map<string, string>();
+
     const db = await this.getDb();
+    if (!db) return titles;
+
     const sql = `SELECT value FROM ItemTable WHERE key = 'chat.ChatSessionStore.index'`;
     const row = await db.get<{ value: string }>(sql, []);
 
-    const titles = new Map<string, string>();
     if (!row?.value) {
       return titles;
     }

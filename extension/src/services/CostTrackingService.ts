@@ -63,17 +63,23 @@ export class CostTrackingService implements vscode.Disposable {
 
     try {
       const available = await this.spanRepo.isAvailable();
-      if (!available) return;
+      if (!available) {
+        console.warn('[CopilotCostTracker] Database not available');
+        return;
+      }
 
       // Get spans for the past 7 days (enough for all dashboard sections)
       const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
       const spans = await this.spanRepo.getSpansSince(sevenDaysAgo);
 
       if (spans.length === 0) {
+        console.log('[CopilotCostTracker] No spans found in last 7 days');
         this.lastData = this.emptyDashboard();
         this._onDidUpdate.fire(this.lastData);
         return;
       }
+
+      console.log(`[CopilotCostTracker] Polled ${spans.length} spans`);
 
       // Detect current session: most recent activity
       this.currentSessionId = this.detectCurrentSession(spans);
