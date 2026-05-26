@@ -13,6 +13,7 @@ Combine the structured Copilot data sources into one report for a single VS Code
 | Source | Provides |
 |--------|----------|
 | `agent-traces.db` (spans) | per-model LLM stats (calls, input/output/cached tokens, TTFT, duration), tool call counts, errors |
+| `state.vscdb` (workspace state) | session titles (VS Code-generated names) |
 | `session-store.db` (turns, files, refs, checkpoints) | user messages, tracked files, references, checkpoints, repo/cwd/branch |
 | `debug-logs/<session-id>/main.jsonl` | first user message (fallback for session name) |
 
@@ -47,9 +48,10 @@ Optional flags:
 Table with: `session_id`, `name`, `started`, `dur_min`, `model`, `llm_calls`, `tool_calls`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`
 
 Session names are resolved in order:
-1. `session-store.db` → `sessions.summary`
-2. `session-store.db` → `turns.user_message` (turn 0)
-3. `debug-logs/<session-id>/main.jsonl` → first `user_message` event
+1. `state.vscdb` → `chat.ChatSessionStore.index` entries (VS Code's session titles)
+2. `session-store.db` → `sessions.summary`
+3. `session-store.db` → `turns.user_message` (turn 0)
+4. `debug-logs/<session-id>/main.jsonl` → first `user_message` event (fallback)
 
 ### Detailed Report (with session id)
 

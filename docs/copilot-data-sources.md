@@ -8,8 +8,9 @@ This repo studies how GitHub Copilot persists per-session telemetry and conversa
 |------|-----|
 | Token counts, cache, model, TTFT, per-tool calls (VS Code Chat) | **`agent-traces.db`** |
 | User & assistant text, tracked files, checkpoints (VS Code Chat) | **`session-store.db`** |
+| Session titles (VS Code-generated names) | **`state.vscdb`** → `chat.ChatSessionStore.index` |
 | Token counts for a debug-enabled VS Code Chat session (no cache write) | **`main.jsonl`** (matches `agent-traces.db` except cache_creation) |
-| Session name / first user message (fallback) | **`main.jsonl`** → `user_message` events |
+| Session name fallback (first user message) | **`main.jsonl`** → `user_message` events |
 | Copilot CLI (`copilot-agent`) — turns, tools, modes (no tokens) | **`events.jsonl`** |
 
 ---
@@ -22,7 +23,7 @@ This repo studies how GitHub Copilot persists per-session telemetry and conversa
 %APPDATA%\Code\User\globalStorage\github.copilot-chat\agent-traces.db
 ```
 
-**Format:** SQLite (WAL journaling). The active `*.db-wal` file may contain MBs of un-checkpointed writes — pure-WASM readers like `sql.js` will miss those. Use `better-sqlite3` (native, supports WAL) or close VS Code to flush writes.
+**Format:** SQLite (WAL journaling). The active `*.db-wal` file may contain MBs of un-checkpointed writes — reading the main file with `sql.js` will miss those until VS Code flushes (or you run `PRAGMA wal_checkpoint(TRUNCATE)` from a real sqlite client).
 
 **Shape:** OpenTelemetry-style spans.
 
@@ -151,7 +152,45 @@ This is the database queried by VS Code's built-in `session_store_sql` tool. **D
 
 ---
 
-## 3. `main.jsonl`  *(debug log — VS Code Chat)*
+## 3. `state.vscdb`  *(VS Code workspace state — session titles)*
+
+**Location**
+
+```
+%APPDATA%\Code\User\workspaceStorage\<workspace-hash>\state.vscdb
+```
+
+**Format:** SQLite. Each workspace has its own `state.vscdb` storing VS Code extension state.
+
+**Session titles:** Stored in the `ItemTable` table under key `chat.ChatSessionStore.index`:
+
+```sql
+SELECT value FROM ItemTable WHERE key = 'chat.ChatSessionStore.index'
+```
+
+The value is JSON:
+
+```json
+{
+  "version": 1,
+  "entries": {
+    "<session-id>": {
+      "sessionId": "...",
+      "title": "Session title here",
+      "lastMessageDate": 1779707719031,
+      "timing": { "created": ..., "lastRequestStarted": ..., "lastRequestEnded": ... },
+      "isEmpty": false,
+      ...
+    }
+  }
+}
+```
+
+**Usage:** Primary source for session names in `inspect-session`. Scans all workspace folders to find titles for requested session IDs.
+
+---
+
+## 4. `main.jsonl`  *(debug log — VS Code Chat)*
 
 **Location**
 
@@ -161,21 +200,11 @@ This is the database queried by VS Code's built-in `session_store_sql` tool. **D
 
 **Format:** One JSON object per line. Captured when the Copilot Chat debug log is enabled. Mirrors `agent-traces.db` content for that session — the numeric totals match exactly.
 
-**Key event types:**
-
-| `type` | Fields | Use |
-|--------|--------|-----|
-| `session_start` | `sid`, `ts`, `attrs.copilotVersion` | Session metadata |
-| `user_message` | `sid`, `attrs.content` | User's prompt text — useful for session naming |
-| `llm_request` | `attrs.inputTokens`, `outputTokens`, `cachedTokens` | Token counts |
-| `tool_call` | `attrs.tool_name` | Tool execution |
-| `turn_start` / `turn_end` | `sid`, `ts` | Turn boundaries |
-
-Used by the `summarize-session` skill. Also used by `inspect-session` as a fallback source for session names when `session-store.db` doesn't have the session.
+Used by the existing `summarize-session` skill in this repo. Useful when you want a fast, per-session, file-based view without touching the SQLite WAL.
 
 ---
 
-## 4. CLI `events.jsonl`  *(Copilot CLI sessions)*
+## 5. CLI `events.jsonl`  *(Copilot CLI sessions)*
 
 **Location**
 
@@ -224,7 +253,6 @@ flowchart LR
 ## Tooling in this repo
 
 - [`tools/agent-traces/inspect.js`](../tools/agent-traces/inspect.js) — schema dumper / ad-hoc SQL runner over `agent-traces.db` using `sql.js`.
-- [`tools/agent-traces/inspect-session.js`](../tools/agent-traces/inspect-session.js) — detailed session report combining `agent-traces.db` + `session-store.db` + `debug-logs` using `better-sqlite3` (WAL-aware).
 - [`.github/skills/summarize-session`](../.github/skills/summarize-session) — VS Code Chat summary from `main.jsonl`.
 - [`.github/skills/summarize-cli-session`](../.github/skills/summarize-cli-session) — Copilot CLI summary from `events.jsonl`.
-- [`.github/skills/inspect-session`](../.github/skills/inspect-session) — skill wrapper for `inspect-session.js`.
+- [`.github/skills/inspect-session`](../.github/skills/inspect-session) — detailed session report combining `agent-traces.db` + `session-store.db`.

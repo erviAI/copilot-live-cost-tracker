@@ -67,6 +67,51 @@ function table(headers, data) {
 
 /**
  * Scan debug-logs for first user_message of each session.
+/**
+ * Get session titles from VS Code's workspace state databases (state.vscdb).
+ * Each workspace stores session metadata in ItemTable under key 'chat.ChatSessionStore.index'.
+ * @param {string[]} sessionIds - session IDs to look for
+ * @returns {Object} map of session_id -> title
+ */
+function getSessionTitlesFromStateDb(sessionIds) {
+  const result = {};
+  const needed = new Set(sessionIds);
+  if (needed.size === 0) return result;
+
+  const wsBase = path.join(process.env.APPDATA || '', 'Code', 'User', 'workspaceStorage');
+  if (!fs.existsSync(wsBase)) return result;
+
+  // Scan all workspaceStorage folders for state.vscdb
+  for (const wsDir of fs.readdirSync(wsBase)) {
+    if (needed.size === 0) break;
+
+    const stateDbPath = path.join(wsBase, wsDir, 'state.vscdb');
+    if (!fs.existsSync(stateDbPath)) continue;
+
+    try {
+      const db = new Database(stateDbPath, { readonly: true });
+      const row = db.prepare("SELECT value FROM ItemTable WHERE key = ?").get('chat.ChatSessionStore.index');
+      db.close();
+
+      if (!row?.value) continue;
+
+      const data = JSON.parse(row.value);
+      const entries = data.entries || {};
+
+      for (const [sid, entry] of Object.entries(entries)) {
+        if (needed.has(sid) && entry.title && entry.title !== 'New Chat' && !entry.isEmpty) {
+          result[sid] = entry.title.length > 60 ? entry.title.slice(0, 57) + '…' : entry.title;
+          needed.delete(sid);
+        }
+      }
+    } catch {}
+  }
+
+  return result;
+}
+
+/**
+ * Fallback: scan debug-logs for first user_message of each session.
  * Structure: workspaceStorage/<hash>/GitHub.copilot-chat/debug-logs/<session-id>/main.jsonl
  * @param {string[]} sessionIds - session IDs to look for
  * @returns {Object} map of session_id -> first user message content
@@ -149,29 +194,41 @@ function main() {
     `).all();
     if (r.length === 0) { console.log('_No sessions found._'); return; }
 
-    // Look up session names from session-store.db if available
-    // Use summary first, fall back to first user message
+    // Look up session names from multiple sources (in order of preference):
+    // 1. state.vscdb (VS Code workspace state) - most reliable
+    // 2. session-store.db summary
+    // 3. session-store.db first turn
+    // 4. debug-logs first user_message (fallback)
+    const ids = r.map(x => x.session_id);
     const summaryMap = {};
+
+    // 1. Primary: state.vscdb titles
+    const fromStateDb = getSessionTitlesFromStateDb(ids);
+    Object.assign(summaryMap, fromStateDb);
+
+    // 2. session-store.db summary (for any still missing)
     if (sdb && hasTable(sdb, 'sessions')) {
-      const ids = r.map(x => x.session_id);
-      const placeholders = ids.map(() => '?').join(',');
-      const summaryRows = sdb.prepare(`SELECT id, summary FROM sessions WHERE id IN (${placeholders})`).all(...ids);
-      for (const row of summaryRows) {
-        summaryMap[row.id] = row.summary;
+      const missing = ids.filter(id => !summaryMap[id]);
+      if (missing.length > 0) {
+        const placeholders = missing.map(() => '?').join(',');
+        const summaryRows = sdb.prepare(`SELECT id, summary FROM sessions WHERE id IN (${placeholders})`).all(...missing);
+        for (const row of summaryRows) {
+          if (row.summary) summaryMap[row.id] = row.summary;
+        }
       }
-      // Fall back to first user message for sessions without a summary
+
+      // 3. session-store.db first turn
       if (hasTable(sdb, 'turns')) {
-        const missingIds = ids.filter(id => !summaryMap[id]);
-        if (missingIds.length > 0) {
-          const mp = missingIds.map(() => '?').join(',');
+        const stillMissing = ids.filter(id => !summaryMap[id]);
+        if (stillMissing.length > 0) {
+          const mp = stillMissing.map(() => '?').join(',');
           const turnRows = sdb.prepare(`
             SELECT session_id, user_message 
             FROM turns 
             WHERE session_id IN (${mp}) AND turn_index = 0
-          `).all(...missingIds);
+          `).all(...stillMissing);
           for (const row of turnRows) {
             if (!summaryMap[row.session_id] && row.user_message) {
-              // Truncate to 60 chars for readability
               const msg = row.user_message.replace(/\r?\n/g, ' ').trim();
               summaryMap[row.session_id] = msg.length > 60 ? msg.slice(0, 57) + '…' : msg;
             }
@@ -180,8 +237,7 @@ function main() {
       }
     }
 
-    // Final fallback: scan debug-logs for first user_message
-    const ids = r.map(x => x.session_id);
+    // 4. Final fallback: debug-logs first user_message
     const stillMissing = ids.filter(id => !summaryMap[id]);
     if (stillMissing.length > 0) {
       const fromDebugLogs = getFirstUserMessagesFromDebugLogs(stillMissing);
