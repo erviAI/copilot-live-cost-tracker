@@ -69,7 +69,8 @@ export class AgentTracesRepository implements ISpanRepository {
         AND (s.chat_session_id = ? OR s.conversation_id = ?)
       ORDER BY s.start_time_ms ASC
     `;
-    return db.all<Span>(sql, [sessionId, sessionId]);
+    const rows = await db.all<Span>(sql, [sessionId, sessionId]);
+    return rows.map(normalizeTimestamps);
   }
 
   async getSpansSince(timestampMs: number): Promise<Span[]> {
@@ -79,7 +80,13 @@ export class AgentTracesRepository implements ISpanRepository {
         AND s.start_time_ms >= ?
       ORDER BY s.start_time_ms ASC
     `;
-    return db.all<Span>(sql, [timestampMs]);
+    // Query with a wide lower bound so we still match rows even if the DB
+    // stores microseconds. Normalization happens in JS below.
+    const rawBound = Math.min(timestampMs, Math.floor(timestampMs / 1000));
+    const rows = await db.all<Span>(sql, [rawBound]);
+    const normalized = rows.map(normalizeTimestamps);
+    // Final filter in ms-space after normalization.
+    return normalized.filter(s => s.startTimeMs >= timestampMs);
   }
 
   async getRecentSessionSpans(limit: number): Promise<Map<string, Span[]>> {
@@ -112,4 +119,24 @@ export class AgentTracesRepository implements ISpanRepository {
     this.db?.close();
     this.db = null;
   }
+}
+
+/**
+ * Defensive timestamp normalization.
+ *
+ * Copilot's agent-traces.db column is documented as epoch-ms, but some
+ * builds emit microseconds. Detect by magnitude: anything more than ~100x
+ * current epoch-ms is treated as microseconds and divided by 1000.
+ */
+function normalizeTimestamps(span: Span): Span {
+  const nowMs = Date.now();
+  const threshold = nowMs * 100;
+  if (span.startTimeMs > threshold || span.endTimeMs > threshold) {
+    return {
+      ...span,
+      startTimeMs: Math.floor(span.startTimeMs / 1000),
+      endTimeMs: Math.floor(span.endTimeMs / 1000),
+    };
+  }
+  return span;
 }
