@@ -111,6 +111,7 @@ export interface SpanDetail {
 export interface TurnCost {
   turnIndex: number;
   traceId: string;
+  startTimeMs: number;
   llmCalls: number;
   inputTokens: number;
   outputTokens: number;

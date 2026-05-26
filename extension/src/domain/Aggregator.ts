@@ -225,6 +225,7 @@ export class Aggregator {
       turns.push({
         turnIndex,
         traceId,
+        startTimeMs: Math.min(...turnSpans.map(s => s.startTimeMs)),
         llmCalls: period.requests,
         inputTokens: period.inputTokens,
         outputTokens: period.outputTokens,

@@ -311,6 +311,11 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     .section-chevron.open, .turn-chevron.open {
       transform: rotate(90deg);
     }
+    .turn-time {
+      color: var(--text-secondary);
+      font-size: 0.85em;
+      margin-right: 2px;
+    }
 
     .toolbar {
       display: flex;
@@ -583,8 +588,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         data.turns.forEach(function(t, idx) {
           var turnId = 'turn-spans-' + idx;
           var traceLabel = t.traceId ? t.traceId.slice(0, 8) : ('T' + t.turnIndex);
+          var timeLabel = t.startTimeMs ? formatClock(t.startTimeMs) : '';
           html += '<tr class="turn-row" data-turn-id="' + turnId + '" title="' + escapeHtml(t.traceId || '') + '">' +
-            '<td><span class="chevron turn-chevron">&#9654;</span> ' + traceLabel + '</td>' +
+            '<td><span class="chevron turn-chevron">&#9654;</span> ' + (timeLabel ? '<span class="turn-time">[' + timeLabel + ']</span> ' : '') + traceLabel + '</td>' +
             '<td class="num">' + t.llmCalls + '</td>' +
             '<td class="num">' + formatCost(t.totalCost) + '</td>' +
             '<td class="num">' + formatTokens(t.inputTokens) + '</td>' +
@@ -666,6 +672,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
     function formatTime(iso) {
       return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function formatClock(ms) {
+      return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
     function escapeHtml(str) {
