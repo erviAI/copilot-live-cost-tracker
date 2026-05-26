@@ -1,0 +1,146 @@
+{
+  "name": "copilot-cost-tracker",
+  "displayName": "GitHub Copilot Cost Tracker",
+  "description": "Track GitHub Copilot token usage and costs in real-time with a sidebar dashboard and status bar.",
+  "version": "0.1.0",
+  "publisher": "ervi",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "copilot",
+    "cost",
+    "tokens",
+    "usage",
+    "tracking"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "copilot-cost-tracker",
+          "title": "Copilot Cost",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "copilot-cost-tracker": [
+        {
+          "type": "webview",
+          "id": "copilotCostTracker.dashboard",
+          "name": "Dashboard"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "copilotCostTracker.refresh",
+        "title": "Refresh Cost Data",
+        "category": "Copilot Cost",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "copilotCostTracker.resetSession",
+        "title": "Reset Session Tracking",
+        "category": "Copilot Cost"
+      },
+      {
+        "command": "copilotCostTracker.openDashboard",
+        "title": "Open Dashboard",
+        "category": "Copilot Cost"
+      },
+      {
+        "command": "copilotCostTracker.openSettings",
+        "title": "Open Settings",
+        "category": "Copilot Cost"
+      }
+    ],
+    "configuration": {
+      "title": "Copilot Cost Tracker",
+      "properties": {
+        "copilotCostTracker.pollingInterval": {
+          "type": "number",
+          "default": 10,
+          "minimum": 2,
+          "maximum": 300,
+          "description": "How often to poll for new cost data (in seconds)."
+        },
+        "copilotCostTracker.budget.session.warning": {
+          "type": "number",
+          "default": 5,
+          "description": "Session cost warning threshold (USD). Shows yellow indicator."
+        },
+        "copilotCostTracker.budget.session.limit": {
+          "type": "number",
+          "default": 8,
+          "description": "Session cost limit threshold (USD). Shows red indicator."
+        },
+        "copilotCostTracker.budget.daily.warning": {
+          "type": "number",
+          "default": 20,
+          "description": "Daily cost warning threshold (USD)."
+        },
+        "copilotCostTracker.budget.daily.limit": {
+          "type": "number",
+          "default": 50,
+          "description": "Daily cost limit threshold (USD)."
+        },
+        "copilotCostTracker.budget.weekly.warning": {
+          "type": "number",
+          "default": 25,
+          "description": "Weekly cost warning threshold (USD)."
+        },
+        "copilotCostTracker.budget.weekly.limit": {
+          "type": "number",
+          "default": 50,
+          "description": "Weekly cost limit threshold (USD)."
+        },
+        "copilotCostTracker.pricingOverrides": {
+          "type": "object",
+          "default": {},
+          "description": "Override pricing for specific models. Keys are model name patterns, values are objects with input/output/cached/cacheWrite rates per 1M tokens.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "input": { "type": "number" },
+              "output": { "type": "number" },
+              "cached": { "type": "number" },
+              "cacheWrite": { "type": "number" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.100.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.21.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.10.0"
+  }
+}

@@ -1,0 +1,140 @@
+import { describe, it, expect } from 'vitest';
+import { Aggregator } from '../src/domain/Aggregator.js';
+import { CostCalculator } from '../src/domain/CostCalculator.js';
+import { PricingEngine } from '../src/domain/PricingEngine.js';
+import type { Span } from '../src/domain/models.js';
+
+function makeSpan(overrides: Partial<Span> = {}): Span {
+  return {
+    spanId: 'span-1',
+    traceId: 'trace-1',
+    operationName: 'chat',
+    agentName: null,
+    requestModel: null,
+    responseModel: 'claude-opus-4-5',
+    inputTokens: 10_000,
+    outputTokens: 1_000,
+    cachedTokens: 5_000,
+    cacheWriteTokens: 2_000,
+    reasoningTokens: 0,
+    startTimeMs: Date.now() - 60_000, // 1 minute ago
+    endTimeMs: Date.now() - 55_000,
+    ttftMs: 200,
+    chatSessionId: 'session-1',
+    conversationId: 'session-1',
+    turnIndex: 0,
+    statusCode: 1,
+    statusMessage: null,
+    toolName: null,
+    ...overrides,
+  };
+}
+
+describe('Aggregator', () => {
+  const engine = new PricingEngine();
+  const calculator = new CostCalculator(engine);
+  const aggregator = new Aggregator(calculator);
+
+  describe('aggregatePeriod', () => {
+    it('aggregates a single span correctly', () => {
+      const span = makeSpan();
+      const result = aggregator.aggregatePeriod([span]);
+
+      expect(result.requests).toBe(1);
+      expect(result.inputTokens).toBe(10_000);
+      expect(result.outputTokens).toBe(1_000);
+      expect(result.cachedTokens).toBe(5_000);
+      expect(result.totalCost).toBeGreaterThan(0);
+      expect(result.byModel).toHaveLength(1);
+      expect(result.byModel[0].model).toBe('claude-opus-4-5');
+    });
+
+    it('groups multiple models separately', () => {
+      const spans = [
+        makeSpan({ spanId: 's1', responseModel: 'claude-opus-4-5' }),
+        makeSpan({ spanId: 's2', responseModel: 'gpt-4.1' }),
+        makeSpan({ spanId: 's3', responseModel: 'claude-opus-4-5' }),
+      ];
+
+      const result = aggregator.aggregatePeriod(spans);
+
+      expect(result.requests).toBe(3);
+      expect(result.byModel).toHaveLength(2);
+      // Should be sorted by cost descending
+      const modelNames = result.byModel.map(m => m.model);
+      expect(modelNames).toContain('claude-opus-4-5');
+      expect(modelNames).toContain('gpt-4.1');
+
+      // Claude model should have 2 calls
+      const claude = result.byModel.find(m => m.model === 'claude-opus-4-5')!;
+      expect(claude.calls).toBe(2);
+    });
+
+    it('returns zero cost for empty spans', () => {
+      const result = aggregator.aggregatePeriod([]);
+      expect(result.requests).toBe(0);
+      expect(result.totalCost).toBe(0);
+      expect(result.byModel).toHaveLength(0);
+    });
+  });
+
+  describe('buildDashboard', () => {
+    it('produces a complete dashboard from spans', () => {
+      const now = Date.now();
+      const spans = [
+        makeSpan({ spanId: 's1', startTimeMs: now - 1000, endTimeMs: now - 500 }),
+        makeSpan({ spanId: 's2', startTimeMs: now - 2000, endTimeMs: now - 1500 }),
+      ];
+
+      const titles = new Map([['session-1', 'Test Session']]);
+      const dashboard = aggregator.buildDashboard(spans, titles, 'session-1');
+
+      expect(dashboard.today.requests).toBe(2);
+      expect(dashboard.thisWeek.requests).toBe(2);
+      expect(dashboard.currentSession.requests).toBe(2);
+      expect(dashboard.currentSession.sessionId).toBe('session-1');
+      expect(dashboard.last7Days).toHaveLength(7);
+      expect(dashboard.recentSessions).toHaveLength(1);
+      expect(dashboard.recentSessions[0].title).toBe('Test Session');
+      expect(dashboard.updatedAt).toBeDefined();
+    });
+
+    it('filters today vs week correctly', () => {
+      const now = Date.now();
+      // Use a span from 8 days ago (guaranteed to be outside this week)
+      const eightDaysAgo = now - 8 * 24 * 60 * 60 * 1000;
+
+      const spans = [
+        makeSpan({ spanId: 's1', startTimeMs: now - 1000, endTimeMs: now - 500 }),
+        makeSpan({ spanId: 's2', startTimeMs: eightDaysAgo, endTimeMs: eightDaysAgo + 500 }),
+      ];
+
+      const dashboard = aggregator.buildDashboard(spans, new Map(), null);
+
+      // Today should have 1, this week should also have 1 (8 days ago is outside the week)
+      expect(dashboard.today.requests).toBe(1);
+      expect(dashboard.thisWeek.requests).toBe(1);
+    });
+
+    it('handles null currentSessionId', () => {
+      const spans = [makeSpan()];
+      const dashboard = aggregator.buildDashboard(spans, new Map(), null);
+
+      expect(dashboard.currentSession.requests).toBe(0);
+      expect(dashboard.currentSession.sessionId).toBeNull();
+    });
+
+    it('builds 7-day chart with correct structure', () => {
+      const spans = [makeSpan()];
+      const dashboard = aggregator.buildDashboard(spans, new Map(), null);
+
+      expect(dashboard.last7Days).toHaveLength(7);
+      for (const bucket of dashboard.last7Days) {
+        expect(bucket.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(bucket.dayLabel).toMatch(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)$/);
+        expect(typeof bucket.totalCost).toBe('number');
+        expect(typeof bucket.requests).toBe('number');
+      }
+    });
+  });
+});
