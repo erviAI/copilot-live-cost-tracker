@@ -1,4 +1,4 @@
-import type { Span, ModelCost, PeriodCost, DailyBucket, SessionInfo, DashboardData, SessionDetailData, TurnCost, ModelDetailBreakdown } from './models.js';
+import type { Span, ModelCost, PeriodCost, DailyBucket, SessionInfo, DashboardData, SessionDetailData, TurnCost, ModelDetailBreakdown, SpanDetail } from './models.js';
 import { CostCalculator } from './CostCalculator.js';
 
 /**
@@ -179,20 +179,52 @@ export class Aggregator {
    */
   aggregateSessionDetail(sessionId: string, spans: Span[]): SessionDetailData {
     // --- Per-turn breakdown ---
-    const turnMap = new Map<number, Span[]>();
+    // Prefer turnIndex for grouping; fall back to traceId when turnIndex is unavailable
+    const hasTurnIndex = spans.some(s => s.turnIndex != null && s.turnIndex >= 0);
+
+    const turnMap = new Map<string, Span[]>();
     for (const span of spans) {
-      const idx = span.turnIndex ?? -1;
-      const arr = turnMap.get(idx) ?? [];
+      const key = hasTurnIndex
+        ? String(span.turnIndex ?? -1)
+        : (span.traceId ?? 'unknown');
+      const arr = turnMap.get(key) ?? [];
       arr.push(span);
-      turnMap.set(idx, arr);
+      turnMap.set(key, arr);
     }
 
     const turns: TurnCost[] = [];
-    for (const [turnIndex, turnSpans] of turnMap) {
+    let turnCounter = 0;
+    // Sort by earliest span start time within each group
+    const sortedGroups = [...turnMap.entries()].sort((a, b) => {
+      const aStart = Math.min(...a[1].map(s => s.startTimeMs));
+      const bStart = Math.min(...b[1].map(s => s.startTimeMs));
+      return aStart - bStart;
+    });
+
+    for (const [key, turnSpans] of sortedGroups) {
+      const turnIndex = hasTurnIndex ? Number(key) : turnCounter++;
+      const traceId = hasTurnIndex ? (turnSpans[0]?.traceId ?? key) : key;
       const period = this.aggregatePeriod(turnSpans);
       const durationMs = turnSpans.reduce((sum, s) => sum + (s.endTimeMs - s.startTimeMs), 0);
+
+      const spanDetails: SpanDetail[] = turnSpans.map(s => {
+        const model = s.responseModel ?? s.requestModel ?? 'unknown';
+        const cost = this.calculator.calculate(model, s.inputTokens, s.outputTokens, s.cachedTokens, s.cacheWriteTokens);
+        return {
+          traceId: s.traceId,
+          model,
+          inputTokens: s.inputTokens,
+          outputTokens: s.outputTokens,
+          cachedTokens: s.cachedTokens,
+          cacheWriteTokens: s.cacheWriteTokens,
+          totalCost: cost?.totalCost ?? 0,
+          durationMs: s.endTimeMs - s.startTimeMs,
+        };
+      });
+
       turns.push({
         turnIndex,
+        traceId,
         llmCalls: period.requests,
         inputTokens: period.inputTokens,
         outputTokens: period.outputTokens,
@@ -200,9 +232,9 @@ export class Aggregator {
         cacheWriteTokens: period.byModel.reduce((s, m) => s + m.cacheWriteTokens, 0),
         totalCost: period.totalCost,
         durationMs,
+        spans: spanDetails,
       });
     }
-    turns.sort((a, b) => a.turnIndex - b.turnIndex);
 
     // --- Per-model breakdown with rate ---
     const period = this.aggregatePeriod(spans);

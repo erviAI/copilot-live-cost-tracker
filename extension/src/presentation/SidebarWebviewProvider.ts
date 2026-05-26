@@ -84,7 +84,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}' 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <style nonce="${nonce}">
     :root {
       --card-bg: var(--vscode-editor-background);
@@ -220,6 +220,16 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       transform: rotate(90deg);
     }
 
+    .turn-chevron {
+      display: inline-block;
+      font-size: 0.7em;
+      transition: transform 0.15s;
+    }
+
+    .turn-row:hover { background: var(--card-border); }
+
+    .span-row td { color: var(--text-secondary); }
+
     .session-info {
       overflow: hidden;
     }
@@ -286,6 +296,21 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     .detail-table .num { text-align: right; }
+
+    .hidden { display: none !important; }
+    .clickable { cursor: pointer; }
+    .span-row { display: none; opacity: 0.75; font-size: 0.9em; }
+    .span-row.visible { display: table-row; }
+    .span-row td:first-child { padding-left: 16px; }
+    .turn-row { cursor: pointer; }
+    .turns-section-title { cursor: pointer; }
+    .section-chevron, .turn-chevron {
+      display: inline-block;
+      transition: transform 0.15s;
+    }
+    .section-chevron.open, .turn-chevron.open {
+      transform: rotate(90deg);
+    }
 
     .toolbar {
       display: flex;
@@ -354,6 +379,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     });
 
     let expandedSessionId = null;
+    const turnsExpandedSessions = {};
+    const expandedTurnIds = {};
 
     function render(data, budgetState) {
       const content = document.getElementById('content');
@@ -445,6 +472,55 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
     // Event delegation for session header clicks (CSP blocks inline onclick)
     document.addEventListener('click', function(e) {
+      // Turns section title expand/collapse
+      var turnsTitle = e.target.closest('.turns-section-title');
+      if (turnsTitle) {
+        var wrapperId = turnsTitle.getAttribute('data-wrapper');
+        var wrapper = wrapperId && document.getElementById(wrapperId);
+        var chevron = turnsTitle.querySelector('.section-chevron');
+        if (wrapper) {
+          var isHidden = wrapper.classList.contains('hidden');
+          if (isHidden) {
+            wrapper.classList.remove('hidden');
+            if (chevron) chevron.classList.add('open');
+            if (expandedSessionId) turnsExpandedSessions[expandedSessionId] = true;
+          } else {
+            wrapper.classList.add('hidden');
+            if (chevron) chevron.classList.remove('open');
+            if (expandedSessionId) delete turnsExpandedSessions[expandedSessionId];
+          }
+        }
+        return;
+      }
+
+      // Turn row expand/collapse
+      var turnRow = e.target.closest('.turn-row');
+      if (turnRow) {
+        var turnId = turnRow.dataset.turnId;
+        var isOpen = turnRow.classList.contains('expanded');
+        // Collapse all turn rows first
+        document.querySelectorAll('.turn-row.expanded').forEach(function(tr) {
+          tr.classList.remove('expanded');
+          var chev = tr.querySelector('.turn-chevron');
+          if (chev) chev.classList.remove('open');
+          document.querySelectorAll('.span-row[data-parent="' + tr.dataset.turnId + '"]').forEach(function(sr) {
+            sr.classList.remove('visible');
+          });
+        });
+        if (!isOpen) {
+          turnRow.classList.add('expanded');
+          var chevron = turnRow.querySelector('.turn-chevron');
+          if (chevron) chevron.classList.add('open');
+          document.querySelectorAll('.span-row[data-parent="' + turnId + '"]').forEach(function(sr) {
+            sr.classList.add('visible');
+          });
+          if (expandedSessionId) expandedTurnIds[expandedSessionId] = turnId;
+        } else {
+          if (expandedSessionId) delete expandedTurnIds[expandedSessionId];
+        }
+        return;
+      }
+
       const header = e.target.closest('.session-header');
       if (!header) return;
       const item = header.closest('.session-item');
@@ -497,23 +573,65 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       });
       html += '</table></div>';
 
-      // Per-turn breakdown
+      // Per-turn breakdown with expandable spans
       if (data.turns && data.turns.length > 0) {
-        html += '<div class="detail-section"><div class="detail-section-title">Cost per Turn (' + data.turns.length + ' turns)</div>';
-        html += '<table class="detail-table"><tr><th>#</th><th class="num">Calls</th><th class="num">Cost</th><th class="num">In</th><th class="num">Out</th><th class="num">Cache R</th><th class="num">Cache W</th></tr>';
-        data.turns.forEach(function(t) {
-          html += '<tr><td>' + (t.turnIndex >= 0 ? t.turnIndex : '?') + '</td>' +
+        var turnsWrapperId = 'turns-wrap-' + sessionId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
+        var turnsOpen = !!turnsExpandedSessions[sessionId];
+        html += '<div class="detail-section"><div class="detail-section-title turns-section-title" data-wrapper="' + turnsWrapperId + '"><span class="section-chevron' + (turnsOpen ? ' open' : '') + '">&#9654;</span> Cost per Turn (' + data.turns.length + ' turns)</div>';
+        html += '<div id="' + turnsWrapperId + '" class="' + (turnsOpen ? '' : 'hidden') + '"><table class="detail-table">';
+        html += '<tr><th>Trace</th><th class="num">Calls</th><th class="num">Cost</th><th class="num">In</th><th class="num">Out</th><th class="num">Cache R</th><th class="num">Cache W</th></tr>';
+        data.turns.forEach(function(t, idx) {
+          var turnId = 'turn-spans-' + idx;
+          var traceLabel = t.traceId ? t.traceId.slice(0, 8) : ('T' + t.turnIndex);
+          html += '<tr class="turn-row" data-turn-id="' + turnId + '" title="' + escapeHtml(t.traceId || '') + '">' +
+            '<td><span class="chevron turn-chevron">&#9654;</span> ' + traceLabel + '</td>' +
             '<td class="num">' + t.llmCalls + '</td>' +
             '<td class="num">' + formatCost(t.totalCost) + '</td>' +
             '<td class="num">' + formatTokens(t.inputTokens) + '</td>' +
             '<td class="num">' + formatTokens(t.outputTokens) + '</td>' +
             '<td class="num">' + formatTokens(t.cachedTokens) + '</td>' +
             '<td class="num">' + formatTokens(t.cacheWriteTokens) + '</td></tr>';
+          // Nested span rows (hidden via CSS .span-row)
+          if (t.spans && t.spans.length > 0) {
+            t.spans.forEach(function(sp, spIdx) {
+              html += '<tr class="span-row" data-parent="' + turnId + '">' +
+                '<td>' + shortModel(sp.model) + '</td>' +
+                '<td class="num">' + (spIdx + 1) + '</td>' +
+                '<td class="num">' + formatCost(sp.totalCost) + '</td>' +
+                '<td class="num">' + formatTokens(sp.inputTokens) + '</td>' +
+                '<td class="num">' + formatTokens(sp.outputTokens) + '</td>' +
+                '<td class="num">' + formatTokens(sp.cachedTokens) + '</td>' +
+                '<td class="num">' + formatTokens(sp.cacheWriteTokens) + '</td></tr>';
+            });
+          }
         });
-        html += '</table></div>';
+        html += '</table></div></div>';
       }
 
       detailEl.innerHTML = html;
+
+      // Restore turns section visibility from state
+      var turnsWrapperId = 'turns-wrap-' + sessionId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
+      var turnsWrapper = document.getElementById(turnsWrapperId);
+      if (turnsWrapper && turnsExpandedSessions[sessionId]) {
+        turnsWrapper.classList.remove('hidden');
+        var chevron = detailEl.querySelector('.turns-section-title .section-chevron');
+        if (chevron) chevron.classList.add('open');
+      }
+
+      // Restore expanded turn row if any
+      var savedTurnId = expandedTurnIds[sessionId];
+      if (savedTurnId) {
+        var turnRow = detailEl.querySelector('.turn-row[data-turn-id="' + savedTurnId + '"]');
+        if (turnRow) {
+          turnRow.classList.add('expanded');
+          var chevron = turnRow.querySelector('.turn-chevron');
+          if (chevron) chevron.classList.add('open');
+          detailEl.querySelectorAll('.span-row[data-parent="' + savedTurnId + '"]').forEach(function(sr) {
+            sr.classList.add('visible');
+          });
+        }
+      }
     }
 
     function statRow(label, value) {

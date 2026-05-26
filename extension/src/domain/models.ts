@@ -95,9 +95,22 @@ export interface BudgetState {
   weeklyLevel: 'ok' | 'warning' | 'limit';
 }
 
+/** Individual span detail within a turn */
+export interface SpanDetail {
+  traceId: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  totalCost: number;
+  durationMs: number;
+}
+
 /** Per-turn cost breakdown for session detail view */
 export interface TurnCost {
   turnIndex: number;
+  traceId: string;
   llmCalls: number;
   inputTokens: number;
   outputTokens: number;
@@ -105,6 +118,7 @@ export interface TurnCost {
   cacheWriteTokens: number;
   totalCost: number;
   durationMs: number;
+  spans: SpanDetail[];
 }
 
 /** Per-model breakdown with rate and cache hit stats */
