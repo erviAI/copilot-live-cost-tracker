@@ -11,6 +11,7 @@ const SPAN_SELECT_SQL = `
     s.span_id AS spanId,
     s.trace_id AS traceId,
     s.operation_name AS operationName,
+    s.agent_name AS agentName,
     s.request_model AS requestModel,
     s.response_model AS responseModel,
     s.input_tokens AS inputTokens,

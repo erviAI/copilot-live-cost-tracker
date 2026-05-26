@@ -8,6 +8,7 @@ export interface Span {
   spanId: string;
   traceId: string;
   operationName: string;
+  agentName: string | null;
   requestModel: string | null;
   responseModel: string | null;
   inputTokens: number;
@@ -98,6 +99,7 @@ export interface BudgetState {
 /** Individual span detail within a turn */
 export interface SpanDetail {
   traceId: string;
+  agentName: string | null;
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -111,6 +113,8 @@ export interface SpanDetail {
 export interface TurnCost {
   turnIndex: number;
   traceId: string;
+  agentName: string | null;
+  model: string | null;
   startTimeMs: number;
   llmCalls: number;
   inputTokens: number;

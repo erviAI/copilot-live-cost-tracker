@@ -277,7 +277,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
     .detail-table {
       width: 100%;
-      border-collapse: collapse;
+      border-collapse: separate;
+      border-spacing: 0;
       font-size: 0.9em;
     }
 
@@ -315,6 +316,47 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       color: var(--text-secondary);
       font-size: 0.85em;
       margin-right: 2px;
+    }
+    .turn-agent {
+      color: var(--accent);
+      font-weight: 500;
+    }
+    .turn-trace {
+      color: var(--text-secondary);
+      font-size: 0.9em;
+    }
+    .has-tip td:first-child {
+      position: relative;
+    }
+    .has-tip:hover td:first-child {
+      z-index: 1000;
+    }
+    .tip {
+      display: none;
+      position: absolute;
+      left: 24px;
+      top: 100%;
+      z-index: 1000;
+      background: var(--vscode-editorHoverWidget-background, var(--card-bg));
+      color: var(--vscode-editorHoverWidget-foreground, var(--text-primary));
+      border: 1px solid var(--vscode-editorHoverWidget-border, var(--card-border));
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 0.85em;
+      line-height: 1.5;
+      white-space: nowrap;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      pointer-events: none;
+    }
+    .has-tip:hover {
+      position: relative;
+      z-index: 1000;
+    }
+    .has-tip:hover .tip {
+      display: block;
+    }
+    .detail-table {
+      overflow: visible;
     }
 
     .toolbar {
@@ -589,8 +631,22 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           var turnId = 'turn-spans-' + idx;
           var traceLabel = t.traceId ? t.traceId.slice(0, 8) : ('T' + t.turnIndex);
           var timeLabel = t.startTimeMs ? formatClock(t.startTimeMs) : '';
-          html += '<tr class="turn-row" data-turn-id="' + turnId + '" title="' + escapeHtml(t.traceId || '') + '">' +
-            '<td><span class="chevron turn-chevron">&#9654;</span> ' + (timeLabel ? '<span class="turn-time">[' + timeLabel + ']</span> ' : '') + traceLabel + '</td>' +
+          var agentLabel = t.agentName ? escapeHtml(t.agentName) : '';
+          var totalTokens = (t.inputTokens || 0) + (t.outputTokens || 0) + (t.cachedTokens || 0);
+          var tipLines = [
+            t.agentName ? 'Agent: ' + t.agentName : '',
+            t.model ? 'Model: ' + shortModel(t.model) : '',
+            'Trace: ' + (t.traceId || ''),
+            'Time: ' + (timeLabel || ''),
+            'Duration: ' + formatDuration(t.durationMs),
+            'Tokens: ' + formatTokens(totalTokens) + ' (in ' + formatTokens(t.inputTokens) + ' / out ' + formatTokens(t.outputTokens) + ' / cache ' + formatTokens(t.cachedTokens) + ')',
+            'Cost: ' + formatCost(t.totalCost),
+            'Calls: ' + t.llmCalls
+          ].filter(Boolean);
+          var tipHtml = tipLines.map(function(l) { return '<div>' + escapeHtml(l) + '</div>'; }).join('');
+          html += '<tr class="turn-row has-tip" data-turn-id="' + turnId + '">' +
+            '<td><span class="chevron turn-chevron">&#9654;</span> ' + (timeLabel ? '<span class="turn-time">[' + timeLabel + ']</span> ' : '') + (agentLabel ? '<span class="turn-agent">' + agentLabel + '</span> ' : '') + '<span class="turn-trace">' + traceLabel + '</span>' +
+            '<span class="tip">' + tipHtml + '</span></td>' +
             '<td class="num">' + t.llmCalls + '</td>' +
             '<td class="num">' + formatCost(t.totalCost) + '</td>' +
             '<td class="num">' + formatTokens(t.inputTokens) + '</td>' +
@@ -600,8 +656,19 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           // Nested span rows (hidden via CSS .span-row)
           if (t.spans && t.spans.length > 0) {
             t.spans.forEach(function(sp, spIdx) {
-              html += '<tr class="span-row" data-parent="' + turnId + '">' +
-                '<td>' + shortModel(sp.model) + '</td>' +
+              var spAgent = sp.agentName ? '<span class="turn-agent">' + escapeHtml(sp.agentName) + '</span> ' : '';
+              var spTotal = (sp.inputTokens || 0) + (sp.outputTokens || 0) + (sp.cachedTokens || 0);
+              var spTipLines = [
+                sp.agentName ? 'Agent: ' + sp.agentName : '',
+                'Model: ' + sp.model,
+                'Trace: ' + (sp.traceId || ''),
+                'Duration: ' + formatDuration(sp.durationMs),
+                'Tokens: ' + formatTokens(spTotal) + ' (in ' + formatTokens(sp.inputTokens) + ' / out ' + formatTokens(sp.outputTokens) + ' / cache ' + formatTokens(sp.cachedTokens) + ')',
+                'Cost: ' + formatCost(sp.totalCost)
+              ].filter(Boolean);
+              var spTipHtml = spTipLines.map(function(l) { return '<div>' + escapeHtml(l) + '</div>'; }).join('');
+              html += '<tr class="span-row has-tip" data-parent="' + turnId + '">' +
+                '<td>' + spAgent + shortModel(sp.model) + '<span class="tip">' + spTipHtml + '</span></td>' +
                 '<td class="num">' + (spIdx + 1) + '</td>' +
                 '<td class="num">' + formatCost(sp.totalCost) + '</td>' +
                 '<td class="num">' + formatTokens(sp.inputTokens) + '</td>' +
@@ -676,6 +743,15 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
     function formatClock(ms) {
       return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function formatDuration(ms) {
+      if (!ms || ms < 0) return '0ms';
+      if (ms < 1000) return Math.round(ms) + 'ms';
+      if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+      const m = Math.floor(ms / 60000);
+      const s = Math.round((ms % 60000) / 1000);
+      return m + 'm ' + s + 's';
     }
 
     function escapeHtml(str) {

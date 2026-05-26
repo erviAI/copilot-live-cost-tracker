@@ -9,6 +9,7 @@ function makeSpan(overrides: Partial<Span> = {}): Span {
     spanId: 'span-1',
     traceId: 'trace-1',
     operationName: 'chat',
+    agentName: null,
     requestModel: null,
     responseModel: 'claude-opus-4-5',
     inputTokens: 10_000,

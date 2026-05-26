@@ -212,6 +212,7 @@ export class Aggregator {
         const cost = this.calculator.calculate(model, s.inputTokens, s.outputTokens, s.cachedTokens, s.cacheWriteTokens);
         return {
           traceId: s.traceId,
+          agentName: s.agentName,
           model,
           inputTokens: s.inputTokens,
           outputTokens: s.outputTokens,
@@ -225,6 +226,8 @@ export class Aggregator {
       turns.push({
         turnIndex,
         traceId,
+        agentName: turnSpans[0]?.agentName ?? null,
+        model: turnSpans[0]?.responseModel ?? turnSpans[0]?.requestModel ?? null,
         startTimeMs: Math.min(...turnSpans.map(s => s.startTimeMs)),
         llmCalls: period.requests,
         inputTokens: period.inputTokens,
