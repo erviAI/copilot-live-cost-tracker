@@ -95,6 +95,34 @@ export interface BudgetState {
   weeklyLevel: 'ok' | 'warning' | 'limit';
 }
 
+/** Per-turn cost breakdown for session detail view */
+export interface TurnCost {
+  turnIndex: number;
+  llmCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  totalCost: number;
+  durationMs: number;
+}
+
+/** Per-model breakdown with rate and cache hit stats */
+export interface ModelDetailBreakdown extends ModelCost {
+  avgDurationMs: number;
+  rateTokensPerSec: number;
+  cacheHitPct: number;
+}
+
+/** Full session detail data returned on expand */
+export interface SessionDetailData {
+  sessionId: string;
+  turns: TurnCost[];
+  byModel: ModelDetailBreakdown[];
+  totalCost: number;
+  totalLlmCalls: number;
+}
+
 /** Pricing rates for a model (all per 1M tokens) */
 export interface ModelPricing {
   input: number;

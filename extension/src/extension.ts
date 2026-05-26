@@ -43,6 +43,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // --- Presentation ---
   const statusBar = new StatusBarController();
   const sidebarProvider = new SidebarWebviewProvider(context.extensionUri);
+  sidebarProvider.setSessionDetailHandler((sessionId) => trackingService.getSessionDetail(sessionId));
 
   // Register the webview provider
   context.subscriptions.push(

@@ -1,4 +1,4 @@
-import type { Span, ModelCost, PeriodCost, DailyBucket, SessionInfo, DashboardData } from './models.js';
+import type { Span, ModelCost, PeriodCost, DailyBucket, SessionInfo, DashboardData, SessionDetailData, TurnCost, ModelDetailBreakdown } from './models.js';
 import { CostCalculator } from './CostCalculator.js';
 
 /**
@@ -172,6 +172,66 @@ export class Aggregator {
     }
 
     return sessionInfos.sort((a, b) => b.endedAt - a.endedAt).slice(0, 20);
+  }
+
+  /**
+   * Aggregate session detail: per-turn costs and per-model breakdown with rate.
+   */
+  aggregateSessionDetail(sessionId: string, spans: Span[]): SessionDetailData {
+    // --- Per-turn breakdown ---
+    const turnMap = new Map<number, Span[]>();
+    for (const span of spans) {
+      const idx = span.turnIndex ?? -1;
+      const arr = turnMap.get(idx) ?? [];
+      arr.push(span);
+      turnMap.set(idx, arr);
+    }
+
+    const turns: TurnCost[] = [];
+    for (const [turnIndex, turnSpans] of turnMap) {
+      const period = this.aggregatePeriod(turnSpans);
+      const durationMs = turnSpans.reduce((sum, s) => sum + (s.endTimeMs - s.startTimeMs), 0);
+      turns.push({
+        turnIndex,
+        llmCalls: period.requests,
+        inputTokens: period.inputTokens,
+        outputTokens: period.outputTokens,
+        cachedTokens: period.cachedTokens,
+        cacheWriteTokens: period.byModel.reduce((s, m) => s + m.cacheWriteTokens, 0),
+        totalCost: period.totalCost,
+        durationMs,
+      });
+    }
+    turns.sort((a, b) => a.turnIndex - b.turnIndex);
+
+    // --- Per-model breakdown with rate ---
+    const period = this.aggregatePeriod(spans);
+    const modelDurations = new Map<string, number>();
+    for (const span of spans) {
+      const model = span.responseModel ?? span.requestModel ?? 'unknown';
+      modelDurations.set(model, (modelDurations.get(model) ?? 0) + (span.endTimeMs - span.startTimeMs));
+    }
+
+    const byModel: ModelDetailBreakdown[] = period.byModel.map(mc => {
+      const totalDurMs = modelDurations.get(mc.model) ?? 0;
+      const totalDurSec = totalDurMs / 1000;
+      const rateTokensPerSec = totalDurSec > 0 ? Math.round(mc.outputTokens / totalDurSec) : 0;
+      const cacheHitPct = mc.inputTokens > 0 ? Math.round(100 * mc.cachedTokens / mc.inputTokens) : 0;
+      return {
+        ...mc,
+        avgDurationMs: mc.calls > 0 ? Math.round(totalDurMs / mc.calls) : 0,
+        rateTokensPerSec,
+        cacheHitPct,
+      };
+    });
+
+    return {
+      sessionId,
+      turns,
+      byModel,
+      totalCost: period.totalCost,
+      totalLlmCalls: period.requests,
+    };
   }
 }
 

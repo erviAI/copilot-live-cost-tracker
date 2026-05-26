@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { DashboardData, BudgetState } from '../domain/models.js';
+import type { DashboardData, BudgetState, SessionDetailData } from '../domain/models.js';
 
 /**
  * SidebarWebviewProvider renders the cost dashboard in the activity bar sidebar.
@@ -11,8 +11,14 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
   private view: vscode.WebviewView | undefined;
   private pendingData: DashboardData | null = null;
   private pendingBudgetState: BudgetState | null = null;
+  private sessionDetailHandler: ((sessionId: string) => Promise<SessionDetailData | null>) | null = null;
 
   constructor(private readonly extensionUri: vscode.Uri) {}
+
+  /** Set the handler called when the webview requests session detail */
+  setSessionDetailHandler(handler: (sessionId: string) => Promise<SessionDetailData | null>): void {
+    this.sessionDetailHandler = handler;
+  }
 
   resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -29,13 +35,23 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.html = this.getHtml(webviewView.webview);
 
     // Handle messages from webview
-    webviewView.webview.onDidReceiveMessage((message) => {
+    webviewView.webview.onDidReceiveMessage(async (message) => {
       switch (message.command) {
         case 'refresh':
           vscode.commands.executeCommand('copilotCostTracker.refresh');
           break;
         case 'openSettings':
           vscode.commands.executeCommand('copilotCostTracker.openSettings');
+          break;
+        case 'sessionDetail':
+          if (this.sessionDetailHandler && message.sessionId) {
+            const detail = await this.sessionDetailHandler(message.sessionId);
+            webviewView.webview.postMessage({
+              type: 'sessionDetail',
+              sessionId: message.sessionId,
+              data: detail,
+            });
+          }
           break;
       }
     });
@@ -178,14 +194,31 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     .session-list { list-style: none; }
 
     .session-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 6px 0;
       border-bottom: 1px solid var(--card-border);
     }
 
     .session-item:last-child { border-bottom: none; }
+
+    .session-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+      cursor: pointer;
+    }
+
+    .session-header:hover { opacity: 0.8; }
+
+    .session-header .chevron {
+      display: inline-block;
+      font-size: 0.7em;
+      margin-right: 4px;
+      transition: transform 0.15s;
+    }
+
+    .session-item.expanded .chevron {
+      transform: rotate(90deg);
+    }
 
     .session-info {
       overflow: hidden;
@@ -208,6 +241,51 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       white-space: nowrap;
       margin-left: 8px;
     }
+
+    .session-detail {
+      display: none;
+      padding: 8px 0 8px 12px;
+      font-size: 0.8em;
+    }
+
+    .session-item.expanded .session-detail {
+      display: block;
+    }
+
+    .session-detail .detail-section {
+      margin-bottom: 8px;
+    }
+
+    .session-detail .detail-section-title {
+      font-size: 0.75em;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+
+    .detail-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9em;
+    }
+
+    .detail-table th {
+      text-align: left;
+      font-weight: 600;
+      padding: 2px 4px;
+      border-bottom: 1px solid var(--card-border);
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    .detail-table td {
+      padding: 2px 4px;
+      white-space: nowrap;
+    }
+
+    .detail-table .num { text-align: right; }
 
     .toolbar {
       display: flex;
@@ -261,12 +339,21 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       vscode.postMessage({ command: 'openSettings' });
     });
 
+    const sessionDetailCache = {};
+
     window.addEventListener('message', (event) => {
       const msg = event.data;
       if (msg.type === 'update') {
         render(msg.data, msg.budgetState);
+      } else if (msg.type === 'sessionDetail') {
+        if (msg.data) {
+          sessionDetailCache[msg.sessionId] = msg.data;
+          renderSessionDetailInline(msg.sessionId, msg.data);
+        }
       }
     });
+
+    let expandedSessionId = null;
 
     function render(data, budgetState) {
       const content = document.getElementById('content');
@@ -286,6 +373,21 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       ].join('');
 
       content.innerHTML = html;
+
+      // Restore expanded session after re-render
+      if (expandedSessionId) {
+        var item = document.querySelector('.session-item[data-session-id="' + expandedSessionId + '"]');
+        if (item) {
+          item.classList.add('expanded');
+          // Always re-fetch so detail stays in sync with header
+          delete sessionDetailCache[expandedSessionId];
+          var detailEl = document.getElementById('detail-' + expandedSessionId);
+          if (detailEl) {
+            detailEl.innerHTML = '<div style="padding:4px;color:var(--text-muted)">Refreshing...</div>';
+          }
+          vscode.postMessage({ command: 'sessionDetail', sessionId: expandedSessionId });
+        }
+      }
     }
 
     function renderSection(title, body) {
@@ -331,11 +433,87 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       if (!sessions || sessions.length === 0) return '<div class="empty-state">No sessions</div>';
       return '<ul class="session-list">' +
         sessions.slice(0, 10).map(s =>
-          '<li class="session-item"><div class="session-info"><div class="session-title">' +
-          escapeHtml(s.title) + '</div><div class="session-meta">' +
-          (s.model ? shortModel(s.model) + ' • ' : '') + timeAgo(s.endedAt) +
-          '</div></div><span class="session-cost">' + formatCost(s.totalCost) + '</span></li>'
+          '<li class="session-item" data-session-id="' + escapeHtml(s.sessionId) + '">' +
+          '<div class="session-header">' +
+          '<div class="session-info"><div class="session-title">' +
+          '<span class="chevron">&#9654;</span> ' + escapeHtml(s.title) + '</div><div class="session-meta">' +
+          (s.model ? shortModel(s.model) + ' \\u00b7 ' : '') + s.requests + ' calls \\u00b7 ' + timeAgo(s.endedAt) +
+          '</div></div><span class="session-cost">' + formatCost(s.totalCost) + '</span></div>' +
+          '<div class="session-detail" id="detail-' + escapeHtml(s.sessionId) + '"></div></li>'
         ).join('') + '</ul>';
+    }
+
+    // Event delegation for session header clicks (CSP blocks inline onclick)
+    document.addEventListener('click', function(e) {
+      const header = e.target.closest('.session-header');
+      if (!header) return;
+      const item = header.closest('.session-item');
+      if (!item) return;
+      const sessionId = item.dataset.sessionId;
+      const wasExpanded = item.classList.contains('expanded');
+
+      // Accordion: collapse all
+      document.querySelectorAll('.session-item.expanded').forEach(function(el) {
+        el.classList.remove('expanded');
+      });
+
+      if (!wasExpanded) {
+        item.classList.add('expanded');
+        expandedSessionId = sessionId;
+        // Lazy fetch if not cached
+        if (!sessionDetailCache[sessionId]) {
+          var detailEl = document.getElementById('detail-' + sessionId);
+          if (detailEl) {
+            detailEl.innerHTML = '<div style="padding:4px;color:var(--text-muted)">Loading...</div>';
+          }
+          vscode.postMessage({ command: 'sessionDetail', sessionId: sessionId });
+        } else {
+          renderSessionDetailInline(sessionId, sessionDetailCache[sessionId]);
+        }
+      } else {
+        expandedSessionId = null;
+      }
+    });
+
+    function renderSessionDetailInline(sessionId, data) {
+      const detailEl = document.getElementById('detail-' + sessionId);
+      if (!detailEl) return;
+
+      let html = '';
+
+      // Per-model breakdown
+      html += '<div class="detail-section"><div class="detail-section-title">LLM Calls by Model (' + data.totalLlmCalls + ' total)</div>';
+      html += '<table class="detail-table"><tr><th>Model</th><th class="num">Calls</th><th class="num">Cost</th><th class="num">In</th><th class="num">Out</th><th class="num">Cache R</th><th class="num">Cache W</th><th class="num">Hit%</th><th class="num">tok/s</th></tr>';
+      data.byModel.forEach(function(m) {
+        html += '<tr><td>' + shortModel(m.model) + '</td>' +
+          '<td class="num">' + m.calls + '</td>' +
+          '<td class="num">' + formatCost(m.totalCost) + '</td>' +
+          '<td class="num">' + formatTokens(m.inputTokens) + '</td>' +
+          '<td class="num">' + formatTokens(m.outputTokens) + '</td>' +
+          '<td class="num">' + formatTokens(m.cachedTokens) + '</td>' +
+          '<td class="num">' + formatTokens(m.cacheWriteTokens) + '</td>' +
+          '<td class="num">' + m.cacheHitPct + '%</td>' +
+          '<td class="num">' + m.rateTokensPerSec + '</td></tr>';
+      });
+      html += '</table></div>';
+
+      // Per-turn breakdown
+      if (data.turns && data.turns.length > 0) {
+        html += '<div class="detail-section"><div class="detail-section-title">Cost per Turn (' + data.turns.length + ' turns)</div>';
+        html += '<table class="detail-table"><tr><th>#</th><th class="num">Calls</th><th class="num">Cost</th><th class="num">In</th><th class="num">Out</th><th class="num">Cache R</th><th class="num">Cache W</th></tr>';
+        data.turns.forEach(function(t) {
+          html += '<tr><td>' + (t.turnIndex >= 0 ? t.turnIndex : '?') + '</td>' +
+            '<td class="num">' + t.llmCalls + '</td>' +
+            '<td class="num">' + formatCost(t.totalCost) + '</td>' +
+            '<td class="num">' + formatTokens(t.inputTokens) + '</td>' +
+            '<td class="num">' + formatTokens(t.outputTokens) + '</td>' +
+            '<td class="num">' + formatTokens(t.cachedTokens) + '</td>' +
+            '<td class="num">' + formatTokens(t.cacheWriteTokens) + '</td></tr>';
+        });
+        html += '</table></div>';
+      }
+
+      detailEl.innerHTML = html;
     }
 
     function statRow(label, value) {

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { ISpanRepository, ISessionTitleResolver } from '../data/interfaces.js';
-import type { Span, DashboardData } from '../domain/models.js';
+import type { Span, DashboardData, SessionDetailData } from '../domain/models.js';
 import { Aggregator } from '../domain/Aggregator.js';
 
 /**
@@ -49,6 +49,18 @@ export class CostTrackingService implements vscode.Disposable {
   /** Manually set/reset the tracked session */
   resetSession(): void {
     this.currentSessionId = null;
+  }
+
+  /** Get detailed breakdown for a specific session (lazy-loaded on expand) */
+  async getSessionDetail(sessionId: string): Promise<SessionDetailData | null> {
+    try {
+      const spans = await this.spanRepo.getSpansForSession(sessionId);
+      if (spans.length === 0) return null;
+      return this.aggregator.aggregateSessionDetail(sessionId, spans);
+    } catch (err) {
+      console.error('[CopilotCostTracker] getSessionDetail error:', err);
+      return null;
+    }
   }
 
   private scheduleNext(): void {
