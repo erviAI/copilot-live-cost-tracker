@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 
 import { AgentTracesRepository } from './data/AgentTracesRepository.js';
+import { DebugLogsRepository } from './data/DebugLogsRepository.js';
 import { SessionStoreRepository } from './data/SessionStoreRepository.js';
 import { StateRepository } from './data/StateRepository.js';
 import { disposeWorker } from './data/sqlite.js';
@@ -20,6 +21,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // --- Data Layer ---
   const spanRepo = new AgentTracesRepository(appDataPath);
+  const debugLogsRepo = new DebugLogsRepository(appDataPath);
   const sessionStoreRepo = new SessionStoreRepository(appDataPath);
   // Resolve title sources from the same appData base as other Copilot DBs.
   const workspaceStorageRoot = path.join(appDataPath, 'Code', 'User', 'workspaceStorage');
@@ -35,7 +37,8 @@ export function activate(context: vscode.ExtensionContext): void {
     spanRepo,
     stateRepo,
     aggregator,
-    getPollingInterval
+    getPollingInterval,
+    debugLogsRepo
   );
 
   const budgetService = new BudgetAlertService(getBudgetThresholds);
