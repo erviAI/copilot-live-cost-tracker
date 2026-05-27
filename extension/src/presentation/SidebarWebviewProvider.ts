@@ -161,34 +161,19 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     .model-name { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; }
     .model-cost { font-weight: 500; white-space: nowrap; margin-left: 8px; }
 
-    .chart-container {
-      display: flex;
-      align-items: flex-end;
-      gap: 4px;
-      height: 60px;
-      padding-top: 8px;
-    }
-
-    .chart-bar-wrapper {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      height: 100%;
-    }
-
-    .chart-bar {
+    .chart-svg {
+      display: block;
       width: 100%;
-      background: var(--accent);
-      border-radius: 2px 2px 0 0;
-      min-height: 2px;
-      margin-top: auto;
+      height: 90px;
     }
 
-    .chart-label {
-      font-size: 0.65em;
-      color: var(--text-muted);
-      margin-top: 4px;
+    .chart-bar-rect {
+      fill: var(--vscode-charts-blue, var(--vscode-textLink-foreground, #3794ff));
+    }
+
+    .chart-bar-label {
+      font-size: 9px;
+      fill: var(--text-muted);
     }
 
     .session-list { list-style: none; }
@@ -493,14 +478,42 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
     function renderChart(days) {
       if (!days || days.length === 0) return '<div class="empty-state">No data</div>';
-      const maxCost = Math.max(...days.map(d => d.totalCost), 0.01);
-      return '<div class="chart-container">' +
-        days.map(d => {
-          const pct = Math.max((d.totalCost / maxCost) * 100, 2);
-          return '<div class="chart-bar-wrapper">' +
-            '<div class="chart-bar" style="height:' + pct + '%"></div>' +
-            '<span class="chart-label">' + d.dayLabel + '</span></div>';
-        }).join('') + '</div>';
+      const costs = days.map(d => (Number.isFinite(d.totalCost) ? d.totalCost : 0));
+      const totalCostSum = costs.reduce((a, b) => a + b, 0);
+      const useCost = totalCostSum > 0;
+      const values = useCost
+        ? costs
+        : days.map(d => (Number.isFinite(d.requests) ? d.requests : 0));
+      const maxValue = Math.max.apply(null, values.concat([useCost ? 0.01 : 1]));
+
+      // SVG-based chart: bulletproof rendering, no flex/percentage-height pitfalls.
+      const viewW = 200;
+      const viewH = 90;
+      const labelH = 14;
+      const chartH = viewH - labelH;
+      const gap = 4;
+      const n = days.length;
+      const barW = (viewW - gap * (n - 1)) / n;
+
+      const bars = days.map((d, i) => {
+        const ratio = maxValue > 0 ? (values[i] / maxValue) : 0;
+        const safeRatio = Number.isFinite(ratio) ? ratio : 0;
+        const h = Math.max(Math.min(safeRatio * chartH, chartH), 1);
+        const x = i * (barW + gap);
+        const y = chartH - h;
+        const labelX = x + barW / 2;
+        const labelY = viewH - 3;
+        const tooltip = d.dayLabel + ': ' + formatCost(d.totalCost) + ' \u00b7 ' + d.requests + ' calls';
+        return '<rect class="chart-bar-rect" x="' + x + '" y="' + y +
+          '" width="' + barW + '" height="' + h + '" rx="1.5">' +
+          '<title>' + escapeHtml(tooltip) + '</title></rect>' +
+          '<text class="chart-bar-label" x="' + labelX + '" y="' + labelY +
+          '" text-anchor="middle">' + escapeHtml(d.dayLabel) + '</text>';
+      }).join('');
+
+      return '<svg class="chart-svg" viewBox="0 0 ' + viewW + ' ' + viewH +
+        '" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">' +
+        bars + '</svg>';
     }
 
     function renderSessionList(sessions) {

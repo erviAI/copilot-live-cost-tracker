@@ -22,7 +22,8 @@ export class CostTrackingService implements vscode.Disposable {
     private readonly spanRepo: ISpanRepository,
     private readonly titleResolver: ISessionTitleResolver,
     private readonly aggregator: Aggregator,
-    private readonly getPollingInterval: () => number
+    private readonly getPollingInterval: () => number,
+    private readonly backfillRepo: ISpanRepository | null = null
   ) {}
 
   /** Start the polling loop */
@@ -82,7 +83,23 @@ export class CostTrackingService implements vscode.Disposable {
 
       // Get spans for the past 7 days (enough for all dashboard sections)
       const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-      const spans = await this.spanRepo.getSpansSince(sevenDaysAgo);
+      const traceSpans = await this.spanRepo.getSpansSince(sevenDaysAgo);
+
+      // Backfill older days from main.jsonl debug logs where the trace DB
+      // has no chat spans (OTel tracing is newer than the debug log).
+      let backfillSpans: Span[] = [];
+      if (this.backfillRepo) {
+        try {
+          if (await this.backfillRepo.isAvailable()) {
+            const raw = await this.backfillRepo.getSpansSince(sevenDaysAgo);
+            backfillSpans = filterDaysCoveredByTraces(raw, traceSpans);
+          }
+        } catch (err) {
+          console.warn('[CopilotCostTracker] Backfill error (continuing):', err);
+        }
+      }
+
+      const spans = traceSpans.concat(backfillSpans);
 
       if (spans.length === 0) {
         console.log('[CopilotCostTracker] No spans found in last 7 days');
@@ -91,7 +108,7 @@ export class CostTrackingService implements vscode.Disposable {
         return;
       }
 
-      console.log(`[CopilotCostTracker] Polled ${spans.length} spans`);
+      console.log(`[CopilotCostTracker] Polled ${traceSpans.length} trace spans + ${backfillSpans.length} debug-log spans`);
 
       // Detect current session: most recent activity
       this.currentSessionId = this.detectCurrentSession(spans);
@@ -156,4 +173,23 @@ export class CostTrackingService implements vscode.Disposable {
     }
     this._onDidUpdate.dispose();
   }
+}
+
+/**
+ * Drop any backfill spans whose local day already has coverage in `traceSpans`.
+ * Trace data is preferred per-day because it includes cache-write tokens that
+ * debug logs don't carry.
+ */
+function filterDaysCoveredByTraces(backfill: Span[], traceSpans: Span[]): Span[] {
+  if (backfill.length === 0) return backfill;
+  const coveredDays = new Set<string>();
+  for (const s of traceSpans) {
+    coveredDays.add(localDayKey(s.startTimeMs));
+  }
+  return backfill.filter(s => !coveredDays.has(localDayKey(s.startTimeMs)));
+}
+
+function localDayKey(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
