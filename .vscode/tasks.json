@@ -7,7 +7,22 @@
       "path": "extension",
       "label": "npm: watch - extension",
       "isBackground": true,
-      "problemMatcher": ["$esbuild-watch"]
+      "problemMatcher": {
+        "owner": "esbuild",
+        "fileLocation": ["relative", "${workspaceFolder}/extension"],
+        "pattern": {
+          "regexp": "^✘ \\[ERROR\\] (.+?)\\n\\n\\s+(.+?):(\\d+):(\\d+):",
+          "message": 1,
+          "file": 2,
+          "line": 3,
+          "column": 4
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "Watching for changes\\.\\.\\."
+        }
+      }
     },
     {
       "type": "npm",
