@@ -425,7 +425,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         renderSection('TODAY', renderCostCard(data.today, budgetState?.dailyLevel)),
         renderSection('THIS WEEK', renderWeekCard(data.thisWeek)),
         renderSection('TODAY BY MODEL', renderModelTable(data.today.byModel)),
-        renderSection('CURRENT SESSION', renderCostCard(data.currentSession, budgetState?.sessionLevel)),
+        renderSection('CURRENT SESSION', renderCurrentSessionCard(data.currentSession, budgetState?.sessionLevel)),
         renderSection('LAST 7 DAYS', renderChart(data.last7Days)),
         renderSection('RECENT SESSIONS', renderSessionList(data.recentSessions)),
         '<div class="updated-at">Updated: ' + formatTime(data.updatedAt) + '</div>',
@@ -460,6 +460,34 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         statRow('Input Tokens', formatTokens(period.inputTokens)) +
         statRow('Output Tokens', formatTokens(period.outputTokens)) +
         statRow('Cached Tokens', formatTokens(period.cachedTokens));
+    }
+
+    function renderCurrentSessionCard(period, level) {
+      const sid = period.sessionId;
+      const sidShort = sid ? (sid.length > 12 ? sid.slice(0, 8) + '…' + sid.slice(-4) : sid) : '(none)';
+      const agent = period.agentName || '(unknown)';
+      const latest = period.latestSpanTimeMs ? formatTime(new Date(period.latestSpanTimeMs).toISOString()) : '(none)';
+      const spanCount = period.spanCount != null ? period.spanCount : 0;
+      const title = period.title || (sid ? '(untitled)' : '(no active session)');
+      const titleRow =
+        '<div class="session-title-row" style="margin-bottom:6px;font-weight:600;color:var(--vscode-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(period.title || '') + '">' +
+          escapeHtml(title) +
+        '</div>';
+      const debugRows =
+        '<div class="debug-block" style="margin-top:8px;padding:6px 8px;border:1px dashed var(--vscode-panel-border, #555);border-radius:4px;font-size:11px;color:var(--text-muted);">' +
+          '<div style="font-weight:600;margin-bottom:4px;">Debug</div>' +
+          statRow('Session ID', '<span title="' + escapeHtml(sid || '') + '" style="font-family:var(--vscode-editor-font-family);">' + escapeHtml(sidShort) + '</span>') +
+          statRow('Agent', escapeHtml(agent)) +
+          statRow('Matched Spans', spanCount) +
+          statRow('Latest Activity', latest) +
+        '</div>';
+      return titleRow + renderCostCard(period, level) + debugRows;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
     }
 
     function renderWeekCard(period) {

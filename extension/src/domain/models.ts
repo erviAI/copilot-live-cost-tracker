@@ -76,7 +76,13 @@ export interface DailyBucket {
 export interface DashboardData {
   today: PeriodCost;
   thisWeek: PeriodCost;
-  currentSession: PeriodCost & { sessionId: string | null };
+  currentSession: PeriodCost & {
+    sessionId: string | null;
+    title: string | null;
+    agentName: string | null;
+    latestSpanTimeMs: number | null;
+    spanCount: number;
+  };
   last7Days: DailyBucket[];
   recentSessions: SessionInfo[];
   updatedAt: string; // ISO timestamp

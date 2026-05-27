@@ -1,5 +1,6 @@
 import type { Span, ModelCost, PeriodCost, DailyBucket, SessionInfo, DashboardData, SessionDetailData, TurnCost, ModelDetailBreakdown, SpanDetail } from './models.js';
 import { CostCalculator } from './CostCalculator.js';
+import { isIgnoredAgent } from './filters.js';
 
 /**
  * Aggregator groups spans into time-bucketed and model-bucketed cost summaries.
@@ -26,12 +27,25 @@ export class Aggregator {
       ? allSpans.filter(s => matchesSession(s, currentSessionId))
       : [];
 
+    let latestSpanTimeMs: number | null = null;
+    let agentName: string | null = null;
+    for (const s of sessionSpans) {
+      if (latestSpanTimeMs === null || s.startTimeMs > latestSpanTimeMs) {
+        latestSpanTimeMs = s.startTimeMs;
+        agentName = s.agentName ?? agentName;
+      }
+    }
+
     return {
       today: this.aggregatePeriod(todaySpans),
       thisWeek: this.aggregatePeriod(weekSpans),
       currentSession: {
         ...this.aggregatePeriod(sessionSpans),
         sessionId: currentSessionId,
+        title: currentSessionId ? (sessionTitles.get(currentSessionId) ?? null) : null,
+        agentName,
+        latestSpanTimeMs,
+        spanCount: sessionSpans.length,
       },
       last7Days: this.buildDailyBuckets(allSpans, now),
       recentSessions: this.buildRecentSessions(allSpans, sessionTitles),
@@ -139,7 +153,8 @@ export class Aggregator {
   private buildRecentSessions(spans: Span[], titles: Map<string, string>): SessionInfo[] {
     // Only include spans that belong to a real chat session (have chat_session_id).
     // Spans with only conversation_id are background/inline completions, not user sessions.
-    const chatSpans = spans.filter(s => s.chatSessionId !== null);
+    // Also exclude spans from ignored utility agents (e.g. copilotLanguageModelWrapper).
+    const chatSpans = spans.filter(s => s.chatSessionId !== null && !isIgnoredAgent(s));
     const conversationToChat = buildConversationToChatMap(chatSpans);
 
     // Group spans by session

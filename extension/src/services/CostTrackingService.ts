@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { ISpanRepository, ISessionTitleResolver } from '../data/interfaces.js';
 import type { Span, DashboardData, SessionDetailData } from '../domain/models.js';
 import { Aggregator } from '../domain/Aggregator.js';
+import { isIgnoredAgent } from '../domain/filters.js';
 
 /**
  * CostTrackingService orchestrates periodic polling of the database
@@ -133,9 +134,14 @@ export class CostTrackingService implements vscode.Disposable {
   private detectCurrentSession(spans: Span[]): string | null {
     if (spans.length === 0) return null;
 
+    // Exclude internal/utility agents (e.g. copilotLanguageModelWrapper) that
+    // are not user-facing chat sessions.
+    const candidates = spans.filter(s => !isIgnoredAgent(s));
+    if (candidates.length === 0) return null;
+
     // Find the most recent span
-    let latest = spans[0];
-    for (const span of spans) {
+    let latest = candidates[0];
+    for (const span of candidates) {
       if (span.startTimeMs > latest.startTimeMs) {
         latest = span;
       }
@@ -153,7 +159,7 @@ export class CostTrackingService implements vscode.Disposable {
     return {
       today: emptyPeriod,
       thisWeek: emptyPeriod,
-      currentSession: { ...emptyPeriod, sessionId: null },
+      currentSession: { ...emptyPeriod, sessionId: null, title: null, agentName: null, latestSpanTimeMs: null, spanCount: 0 },
       last7Days: [],
       recentSessions: [],
       updatedAt: new Date().toISOString(),
