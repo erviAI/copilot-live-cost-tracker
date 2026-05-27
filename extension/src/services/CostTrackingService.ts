@@ -76,28 +76,36 @@ export class CostTrackingService implements vscode.Disposable {
     if (this.disposed) return;
 
     try {
-      const available = await this.spanRepo.isAvailable();
-      if (!available) {
-        console.warn('[CopilotCostTracker] Database not available');
-        return;
-      }
-
       // Get spans for the past 7 days (enough for all dashboard sections)
       const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-      const traceSpans = await this.spanRepo.getSpansSince(sevenDaysAgo);
 
-      // Backfill older days from main.jsonl debug logs where the trace DB
-      // has no chat spans (OTel tracing is newer than the debug log).
+      // Primary source: agent-traces.db (may not exist on older Copilot versions)
+      let traceSpans: Span[] = [];
+      const tracesAvailable = await this.spanRepo.isAvailable();
+      if (tracesAvailable) {
+        traceSpans = await this.spanRepo.getSpansSince(sevenDaysAgo);
+      }
+
+      // Fallback/backfill: debug-logs (main.jsonl files)
       let backfillSpans: Span[] = [];
       if (this.backfillRepo) {
         try {
           if (await this.backfillRepo.isAvailable()) {
             const raw = await this.backfillRepo.getSpansSince(sevenDaysAgo);
-            backfillSpans = filterDaysCoveredByTraces(raw, traceSpans);
+            backfillSpans = tracesAvailable
+              ? filterDaysCoveredByTraces(raw, traceSpans)
+              : raw;
           }
         } catch (err) {
           console.warn('[CopilotCostTracker] Backfill error (continuing):', err);
         }
+      }
+
+      if (!tracesAvailable && backfillSpans.length === 0) {
+        console.warn('[CopilotCostTracker] No data sources available (agent-traces.db not found, no debug logs)');
+        this.lastData = this.emptyDashboard();
+        this._onDidUpdate.fire(this.lastData);
+        return;
       }
 
       const spans = traceSpans.concat(backfillSpans);
