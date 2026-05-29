@@ -72,6 +72,13 @@ export interface DailyBucket {
   requests: number;
 }
 
+/** Status of the cost data source */
+export interface DataSourceStatus {
+  source: 'agent-traces' | 'debug-logs' | 'none';
+  agentTracesAvailable: boolean;
+  message?: string;
+}
+
 /** Complete dashboard state sent to the webview */
 export interface DashboardData {
   today: PeriodCost;
@@ -86,6 +93,7 @@ export interface DashboardData {
   last7Days: DailyBucket[];
   recentSessions: SessionInfo[];
   updatedAt: string; // ISO timestamp
+  dataSourceStatus?: DataSourceStatus;
 }
 
 /** Budget threshold configuration */

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { ISpanRepository, ISessionTitleResolver } from '../data/interfaces.js';
-import type { Span, DashboardData, SessionDetailData } from '../domain/models.js';
+import type { Span, DashboardData, SessionDetailData, DataSourceStatus } from '../domain/models.js';
+import type { CostDataSource } from '../config.js';
 import { Aggregator } from '../domain/Aggregator.js';
 import { isIgnoredAgent } from '../domain/filters.js';
 
@@ -24,7 +25,8 @@ export class CostTrackingService implements vscode.Disposable {
     private readonly titleResolver: ISessionTitleResolver,
     private readonly aggregator: Aggregator,
     private readonly getPollingInterval: () => number,
-    private readonly backfillRepo: ISpanRepository | null = null
+    private readonly backfillRepo: ISpanRepository | null = null,
+    private readonly getCostDataSource: () => CostDataSource = () => 'agent-traces-only'
   ) {}
 
   /** Start the polling loop */
@@ -78,6 +80,7 @@ export class CostTrackingService implements vscode.Disposable {
     try {
       // Get spans for the past 7 days (enough for all dashboard sections)
       const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      const costDataSource = this.getCostDataSource();
 
       // Primary source: agent-traces.db (may not exist on older Copilot versions)
       let traceSpans: Span[] = [];
@@ -86,9 +89,10 @@ export class CostTrackingService implements vscode.Disposable {
         traceSpans = await this.spanRepo.getSpansSince(sevenDaysAgo);
       }
 
-      // Fallback/backfill: debug-logs (main.jsonl files)
+      // Fallback/backfill: debug-logs (main.jsonl files) — only if enabled
       let backfillSpans: Span[] = [];
-      if (this.backfillRepo) {
+      const useBackfill = costDataSource === 'with-fallback';
+      if (useBackfill && this.backfillRepo) {
         try {
           if (await this.backfillRepo.isAvailable()) {
             const raw = await this.backfillRepo.getSpansSince(sevenDaysAgo);
@@ -101,9 +105,27 @@ export class CostTrackingService implements vscode.Disposable {
         }
       }
 
+      // Determine data source status
+      let dataSourceStatus: DataSourceStatus;
+      if (tracesAvailable && traceSpans.length > 0) {
+        dataSourceStatus = { source: 'agent-traces', agentTracesAvailable: true };
+      } else if (backfillSpans.length > 0) {
+        dataSourceStatus = {
+          source: 'debug-logs',
+          agentTracesAvailable: false,
+          message: 'Using debug-logs fallback. Cache write data will be missing. Enable agent-traces.db for accurate cost tracking.',
+        };
+      } else {
+        dataSourceStatus = {
+          source: 'none',
+          agentTracesAvailable: false,
+          message: this.getUnavailableGuidance(),
+        };
+      }
+
       if (!tracesAvailable && backfillSpans.length === 0) {
         console.warn('[CopilotCostTracker] No data sources available (agent-traces.db not found, no debug logs)');
-        this.lastData = this.emptyDashboard();
+        this.lastData = this.emptyDashboard(dataSourceStatus);
         this._onDidUpdate.fire(this.lastData);
         return;
       }
@@ -112,12 +134,12 @@ export class CostTrackingService implements vscode.Disposable {
 
       if (spans.length === 0) {
         console.log('[CopilotCostTracker] No spans found in last 7 days');
-        this.lastData = this.emptyDashboard();
+        this.lastData = this.emptyDashboard(dataSourceStatus);
         this._onDidUpdate.fire(this.lastData);
         return;
       }
 
-      console.log(`[CopilotCostTracker] Polled ${traceSpans.length} trace spans + ${backfillSpans.length} debug-log spans`);
+      console.log(`[CopilotCostTracker] Polled ${traceSpans.length} trace spans + ${backfillSpans.length} debug-log spans (source: ${costDataSource})`);
 
       // Detect current session: most recent activity
       this.currentSessionId = this.detectCurrentSession(spans);
@@ -128,6 +150,7 @@ export class CostTrackingService implements vscode.Disposable {
 
       // Build dashboard
       this.lastData = this.aggregator.buildDashboard(spans, titles, this.currentSessionId);
+      this.lastData.dataSourceStatus = dataSourceStatus;
       this._onDidUpdate.fire(this.lastData);
     } catch (err) {
       // Log but don't crash — the extension should be resilient
@@ -162,7 +185,7 @@ export class CostTrackingService implements vscode.Disposable {
     return latest.chatSessionId ?? latest.conversationId ?? null;
   }
 
-  private emptyDashboard(): DashboardData {
+  private emptyDashboard(dataSourceStatus?: DataSourceStatus): DashboardData {
     const emptyPeriod = { totalCost: 0, requests: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, byModel: [] };
     return {
       today: emptyPeriod,
@@ -171,7 +194,12 @@ export class CostTrackingService implements vscode.Disposable {
       last7Days: [],
       recentSessions: [],
       updatedAt: new Date().toISOString(),
+      dataSourceStatus,
     };
+  }
+
+  private getUnavailableGuidance(): string {
+    return `Cost tracking requires agent-traces.db which is created by VS Code Copilot Chat.\n\nIf the file doesn't exist:\n1. Use Copilot Chat at least once\n2. Restart VS Code\n\nExpected path: %APPDATA%/Code/User/globalStorage/github.copilot-chat/agent-traces.db`;
   }
 
   /** Update polling interval when settings change */

@@ -368,6 +368,43 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       color: var(--text-muted);
     }
 
+    .warning-banner {
+      background: var(--vscode-inputValidation-warningBackground, #5a4a00);
+      border: 1px solid var(--vscode-inputValidation-warningBorder, #b89500);
+      border-radius: 4px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .warning-banner-title {
+      font-weight: 600;
+      color: var(--vscode-inputValidation-warningForeground, #cca700);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .warning-banner-message {
+      font-size: 0.85em;
+      white-space: pre-line;
+      line-height: 1.5;
+      color: var(--text-primary);
+    }
+
+    .warning-banner-link {
+      display: inline-block;
+      margin-top: 10px;
+      color: var(--accent);
+      cursor: pointer;
+      text-decoration: underline;
+      font-size: 0.85em;
+    }
+
+    .warning-banner-link:hover {
+      opacity: 0.8;
+    }
+
     .updated-at {
       text-align: center;
       font-size: 0.7em;
@@ -416,12 +453,22 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
     function render(data, budgetState) {
       const content = document.getElementById('content');
+
+      // Show warning banner when data source is unavailable
+      let bannerHtml = '';
+      if (data?.dataSourceStatus?.source === 'none') {
+        bannerHtml = renderWarningBanner(data.dataSourceStatus.message);
+      } else if (data?.dataSourceStatus?.source === 'debug-logs') {
+        bannerHtml = renderWarningBanner(data.dataSourceStatus.message, true);
+      }
+
       if (!data || (data.today.requests === 0 && data.thisWeek.requests === 0)) {
-        content.innerHTML = '<div class="empty-state">No Copilot usage data found yet.</div>';
+        content.innerHTML = bannerHtml + '<div class="empty-state">No Copilot usage data found yet.</div>';
         return;
       }
 
       const html = [
+        bannerHtml,
         renderSection('TODAY', renderCostCard(data.today, budgetState?.dailyLevel)),
         renderSection('THIS WEEK', renderWeekCard(data.thisWeek)),
         renderSection('TODAY BY MODEL', renderModelTable(data.today.byModel)),
@@ -447,6 +494,16 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           vscode.postMessage({ command: 'sessionDetail', sessionId: expandedSessionId });
         }
       }
+    }
+
+    function renderWarningBanner(message, isMinor) {
+      const title = isMinor ? 'Using Fallback Data Source' : 'Data Source Unavailable';
+      const icon = isMinor ? '\u26a0\ufe0f' : '\u274c';
+      return '<div class="warning-banner">' +
+        '<div class="warning-banner-title">' + icon + ' ' + escapeHtml(title) + '</div>' +
+        '<div class="warning-banner-message">' + escapeHtml(message || '') + '</div>' +
+        '<span class="warning-banner-link" onclick="vscode.postMessage({ command: \\'openSettings\\' })">Open Extension Settings</span>' +
+        '</div>';
     }
 
     function renderSection(title, body) {

@@ -117,6 +117,16 @@
               "cacheWrite": { "type": "number" }
             }
           }
+        },
+        "copilotCostTracker.costDataSource": {
+          "type": "string",
+          "enum": ["agent-traces-only", "with-fallback"],
+          "default": "agent-traces-only",
+          "enumDescriptions": [
+            "Use only agent-traces.db (recommended — accurate cache read/write data)",
+            "Fall back to debug-logs when agent-traces unavailable (cache write data will be missing)"
+          ],
+          "description": "Where to read cost data from. agent-traces.db is the recommended source as it includes accurate cache read/write token counts."
         }
       }
     }

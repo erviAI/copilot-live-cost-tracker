@@ -14,7 +14,7 @@ import { CostTrackingService } from './services/CostTrackingService.js';
 import { BudgetAlertService } from './services/BudgetAlertService.js';
 import { StatusBarController } from './presentation/StatusBarController.js';
 import { SidebarWebviewProvider } from './presentation/SidebarWebviewProvider.js';
-import { getPollingInterval, getBudgetThresholds, getPricingOverrides } from './config.js';
+import { getPollingInterval, getBudgetThresholds, getPricingOverrides, getCostDataSource } from './config.js';
 
 export function activate(context: vscode.ExtensionContext): void {
   const appDataPath = getAppDataPath();
@@ -38,7 +38,8 @@ export function activate(context: vscode.ExtensionContext): void {
     stateRepo,
     aggregator,
     getPollingInterval,
-    debugLogsRepo
+    debugLogsRepo,
+    getCostDataSource
   );
 
   const budgetService = new BudgetAlertService(getBudgetThresholds);
