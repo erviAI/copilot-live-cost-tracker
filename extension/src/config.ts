@@ -35,3 +35,9 @@ export function getPricingOverrides(): Record<string, ModelPricing> | undefined 
   if (!overrides || Object.keys(overrides).length === 0) return undefined;
   return overrides;
 }
+
+export type CostDataSource = 'agent-traces-only' | 'with-fallback';
+
+export function getCostDataSource(): CostDataSource {
+  return vscode.workspace.getConfiguration(SECTION).get<CostDataSource>('costDataSource', 'agent-traces-only');
+}

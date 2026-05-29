@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { DashboardData, BudgetState } from '../domain/models.js';
+import type { DashboardData, BudgetState, DataSourceStatus } from '../domain/models.js';
 
 /**
  * StatusBarController manages the status bar item that shows
@@ -21,12 +21,33 @@ export class StatusBarController implements vscode.Disposable {
 
   /** Update the status bar with latest cost data */
   update(data: DashboardData, budgetState: BudgetState): void {
+    // Check for data source unavailability first
+    if (data.dataSourceStatus?.source === 'none') {
+      this.statusBarItem.text = '$(warning) Copilot Cost: No Data';
+      this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+      this.statusBarItem.tooltip = this.buildUnavailableTooltip(data.dataSourceStatus);
+      return;
+    }
+
     const sessionCost = formatCost(data.currentSession.totalCost);
     const todayCost = formatCost(data.today.totalCost);
 
     this.statusBarItem.text = `$(pulse) Session: ${sessionCost} | Today: ${todayCost}`;
     this.statusBarItem.backgroundColor = this.getBackgroundColor(budgetState);
     this.statusBarItem.tooltip = this.buildTooltip(data, budgetState);
+  }
+
+  private buildUnavailableTooltip(status: DataSourceStatus): string {
+    const lines = [
+      'Copilot Cost Tracker',
+      '──────────────────',
+      '⚠️ Data source unavailable',
+      '',
+      status.message ?? 'agent-traces.db not found',
+      '',
+      'Click to open dashboard for more info',
+    ];
+    return lines.join('\n');
   }
 
   private getBackgroundColor(state: BudgetState): vscode.ThemeColor | undefined {
