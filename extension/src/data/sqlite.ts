@@ -7,6 +7,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { ChildProcess, spawn } from 'child_process';
+import { logger } from '../logger.js';
 
 export interface Database {
   all<T>(sql: string, params: unknown[]): Promise<T[]>;
@@ -70,7 +71,7 @@ class WorkerProcess {
       });
 
       this.process.stderr!.on('data', (chunk: Buffer) => {
-        console.error('[CopilotCostTracker Worker]', chunk.toString());
+        logger.error('[Worker]', chunk.toString());
       });
 
       this.process.on('exit', (code) => {

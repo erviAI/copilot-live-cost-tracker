@@ -6,6 +6,7 @@ import type { CostDataSource } from '../config.js';
 import type { CostHistoryService } from './CostHistoryService.js';
 import { Aggregator } from '../domain/Aggregator.js';
 import { isIgnoredAgent } from '../domain/filters.js';
+import { logger } from '../logger.js';
 
 /**
  * CostTrackingService orchestrates periodic polling of the database
@@ -79,7 +80,7 @@ export class CostTrackingService implements vscode.Disposable {
       }
       return this.aggregator.aggregateSessionDetail(sessionId, spans, turnLabels);
     } catch (err) {
-      console.error('[CopilotCostTracker] getSessionDetail error:', err);
+      logger.error('getSessionDetail error:', err);
       return null;
     }
   }
@@ -118,7 +119,7 @@ export class CostTrackingService implements vscode.Disposable {
               : raw;
           }
         } catch (err) {
-          console.warn('[CopilotCostTracker] Backfill error (continuing):', err);
+          logger.warn('Backfill error (continuing):', err);
         }
       }
 
@@ -141,7 +142,7 @@ export class CostTrackingService implements vscode.Disposable {
       }
 
       if (!tracesAvailable && backfillSpans.length === 0) {
-        console.warn('[CopilotCostTracker] No data sources available (agent-traces.db not found, no debug logs)');
+        logger.warn('No data sources available (agent-traces.db not found, no debug logs)');
         this.lastData = this.emptyDashboard(dataSourceStatus);
         this._onDidUpdate.fire(this.lastData);
         return;
@@ -150,13 +151,13 @@ export class CostTrackingService implements vscode.Disposable {
       const spans = traceSpans.concat(backfillSpans);
 
       if (spans.length === 0) {
-        console.log('[CopilotCostTracker] No spans found in last 7 days');
+        logger.info('No spans found in last 7 days');
         this.lastData = this.emptyDashboard(dataSourceStatus);
         this._onDidUpdate.fire(this.lastData);
         return;
       }
 
-      console.log(`[CopilotCostTracker] Polled ${traceSpans.length} trace spans + ${backfillSpans.length} debug-log spans (source: ${costDataSource})`);
+      logger.info(`Polled ${traceSpans.length} trace spans + ${backfillSpans.length} debug-log spans (source: ${costDataSource})`);
 
       // Detect current session: most recent activity
       this.currentSessionId = this.detectCurrentSession(spans);
@@ -180,7 +181,7 @@ export class CostTrackingService implements vscode.Disposable {
       }
     } catch (err) {
       // Log but don't crash — the extension should be resilient
-      console.error('[CopilotCostTracker] Poll error:', err);
+      logger.error('Poll error:', err);
     }
   }
 
