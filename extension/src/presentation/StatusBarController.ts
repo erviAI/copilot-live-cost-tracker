@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { DashboardData, BudgetState, DataSourceStatus } from '../domain/models.js';
+import { getDisplayCurrency } from '../config.js';
 
 /**
  * StatusBarController manages the status bar item that shows
@@ -70,12 +71,16 @@ export class StatusBarController implements vscode.Disposable {
   }
 
   private buildTooltip(data: DashboardData, state: BudgetState): string {
+    const currency = getDisplayCurrency();
+    const converted = (cost: number) =>
+      currency ? ` (~${(cost * currency.rate).toFixed(2)} ${currency.code})` : '';
+
     const lines = [
       `Copilot Cost Tracker`,
       `──────────────────`,
-      `Session: ${formatCost(data.currentSession.totalCost)} (${data.currentSession.requests} requests)`,
-      `Today:   ${formatCost(data.today.totalCost)} (${data.today.requests} requests)`,
-      `Week:    ${formatCost(data.thisWeek.totalCost)} (${data.thisWeek.requests} requests)`,
+      `Session: ${formatCost(data.currentSession.totalCost)}${converted(data.currentSession.totalCost)} (${data.currentSession.requests} requests)`,
+      `Today:   ${formatCost(data.today.totalCost)}${converted(data.today.totalCost)} (${data.today.requests} requests)`,
+      `Week:    ${formatCost(data.thisWeek.totalCost)}${converted(data.thisWeek.totalCost)} (${data.thisWeek.requests} requests)`,
       ``,
       `Tokens today: ${formatTokens(data.today.inputTokens)} in / ${formatTokens(data.today.outputTokens)} out / ${formatTokens(data.today.cachedTokens)} cached`,
       ``,

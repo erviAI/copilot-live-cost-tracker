@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { DashboardData, BudgetState, SessionDetailData } from '../domain/models.js';
+import { getDisplayCurrency } from '../config.js';
 
 /**
  * SidebarWebviewProvider renders the cost dashboard in the activity bar sidebar.
@@ -68,10 +69,12 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     this.pendingBudgetState = budgetState;
 
     if (this.view?.visible) {
+      const currency = getDisplayCurrency();
       this.view.webview.postMessage({
         type: 'update',
         data,
         budgetState,
+        displayCurrency: currency ?? null,
       });
     }
   }
@@ -460,10 +463,12 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     });
 
     const sessionDetailCache = {};
+    let displayCurrency = null;
 
     window.addEventListener('message', (event) => {
       const msg = event.data;
       if (msg.type === 'update') {
+        displayCurrency = msg.displayCurrency || null;
         render(msg.data, msg.budgetState);
       } else if (msg.type === 'sessionDetail') {
         if (msg.data) {
@@ -538,7 +543,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
     function renderCostCard(period, level) {
       const colorClass = level === 'limit' ? 'cost-red' : level === 'warning' ? 'cost-yellow' : 'cost-green';
-      return '<div class="cost-large ' + colorClass + '">' + formatCost(period.totalCost) + '</div>' +
+      return '<div class="cost-large ' + colorClass + '"' + costTitle(period.totalCost) + '>' + formatCost(period.totalCost) + '</div>' +
         statRow('Requests', period.requests) +
         statRow('Input Tokens', formatTokens(period.inputTokens)) +
         statRow('Output Tokens', formatTokens(period.outputTokens)) +
@@ -577,7 +582,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     function renderWeekCard(period) {
-      return '<div class="cost-large cost-green">' + formatCost(period.totalCost) + '</div>' +
+      return '<div class="cost-large cost-green"' + costTitle(period.totalCost) + '>' + formatCost(period.totalCost) + '</div>' +
         statRow('Requests', period.requests);
     }
 
@@ -586,7 +591,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       return '<div class="model-table">' +
         models.map(m =>
           '<div class="model-row"><span class="model-name">' + shortModel(m.model) +
-          '</span><span class="model-cost">' + formatCost(m.totalCost) + '</span></div>'
+          '</span><span class="model-cost"' + costTitle(m.totalCost) + '>' + formatCost(m.totalCost) + '</span></div>'
         ).join('') + '</div>';
     }
 
@@ -641,7 +646,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           '<span class="chevron">&#9654;</span> ' + escapeHtml(s.title) + '</div><div class="session-meta">' +
           (s.workspace ? '<span class="session-repo">' + escapeHtml(s.workspace) + '</span> \\u00b7 ' : '') +
           (s.model ? shortModel(s.model) + ' \\u00b7 ' : '') + s.requests + ' calls \\u00b7 ' + timeAgo(s.endedAt) +
-          '</div></div><span class="session-cost">' + formatCost(s.totalCost) + '</span></div>' +
+          '</div></div><span class="session-cost"' + costTitle(s.totalCost) + '>' + formatCost(s.totalCost) + '</span></div>' +
           '<div class="session-detail" id="detail-' + escapeHtml(s.sessionId) + '"></div></li>'
         ).join('') + '</ul>';
     }
@@ -910,6 +915,11 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     function formatCost(cost) {
       if (cost < 0.01 && cost > 0) return '< $0.01';
       return '$' + cost.toFixed(2);
+    }
+
+    function costTitle(cost) {
+      if (!displayCurrency) return '';
+      return ' title="~' + (cost * displayCurrency.rate).toFixed(2) + ' ' + displayCurrency.code + '"';
     }
 
     function formatTokens(count) {
