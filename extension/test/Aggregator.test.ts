@@ -193,7 +193,7 @@ describe('Aggregator', () => {
       expect(dashboard.recentSessions[0].requests).toBe(3);
     });
 
-    it('does not create separate session for subagent tool-call IDs', () => {
+    it('does not create separate session for subagent tool-call IDs (toolu_ prefix)', () => {
       const now = Date.now();
       const parentSessionId = 'real-session-uuid';
       const toolCallId = 'toolu_bdrk_abc123';
@@ -227,6 +227,51 @@ describe('Aggregator', () => {
       // Should group under real session, not tool call ID
       expect(dashboard.recentSessions).toHaveLength(1);
       expect(dashboard.recentSessions[0].sessionId).toBe(parentSessionId);
+    });
+
+    it('does not create separate session for subagent tool-call IDs (call_ prefix)', () => {
+      const now = Date.now();
+      const parentSessionId = '3b4fbfad-fc77-42e2-8be7-2de7f7590d75';
+      const toolCallId = 'call_BDL2EEZHtuCw1Q6cZJA2mXaF';
+      const sharedTraceId = 'shared-trace-id-2';
+
+      const spans = [
+        makeSpan({
+          spanId: 'parent-1',
+          traceId: sharedTraceId,
+          parentSpanId: null,
+          chatSessionId: parentSessionId,
+          conversationId: parentSessionId,
+          startTimeMs: now - 3000,
+          endTimeMs: now - 2500,
+        }),
+        makeSpan({
+          spanId: 'sub-1',
+          traceId: sharedTraceId,
+          parentSpanId: 'some-parent',
+          chatSessionId: toolCallId,
+          conversationId: 'subagent-conv',
+          agentName: 'tool/runSubagent-Explore',
+          startTimeMs: now - 2000,
+          endTimeMs: now - 1500,
+        }),
+        makeSpan({
+          spanId: 'sub-2',
+          traceId: sharedTraceId,
+          parentSpanId: 'some-parent',
+          chatSessionId: toolCallId,
+          conversationId: 'subagent-conv',
+          agentName: 'tool/runSubagent-Explore',
+          startTimeMs: now - 1000,
+          endTimeMs: now - 500,
+        }),
+      ];
+
+      const dashboard = aggregator.buildDashboard(spans, new Map(), null);
+
+      expect(dashboard.recentSessions).toHaveLength(1);
+      expect(dashboard.recentSessions[0].sessionId).toBe(parentSessionId);
+      expect(dashboard.recentSessions[0].requests).toBe(3);
     });
   });
 });

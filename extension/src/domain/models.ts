@@ -128,6 +128,7 @@ export interface SpanDetail {
 export interface TurnCost {
   turnIndex: number;
   traceId: string;
+  label: string | null;
   agentName: string | null;
   model: string | null;
   startTimeMs: number;
@@ -139,6 +140,8 @@ export interface TurnCost {
   totalCost: number;
   durationMs: number;
   spans: SpanDetail[];
+  /** Subagent calls nested within this turn */
+  children?: TurnCost[];
 }
 
 /** Per-model breakdown with rate and cache hit stats */

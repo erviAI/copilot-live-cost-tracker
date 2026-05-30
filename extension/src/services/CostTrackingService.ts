@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { ISpanRepository, ISessionTitleResolver } from '../data/interfaces.js';
+import type { AgentTracesRepository } from '../data/AgentTracesRepository.js';
 import type { Span, DashboardData, SessionDetailData, DataSourceStatus } from '../domain/models.js';
 import type { CostDataSource } from '../config.js';
 import { Aggregator } from '../domain/Aggregator.js';
@@ -60,7 +61,13 @@ export class CostTrackingService implements vscode.Disposable {
     try {
       const spans = await this.spanRepo.getSpansForSession(sessionId);
       if (spans.length === 0) return null;
-      return this.aggregator.aggregateSessionDetail(sessionId, spans);
+      // Fetch turn labels from agent-traces.db (keyed by traceId)
+      let turnLabels: Map<string, string> | undefined;
+      const tracesRepo = this.spanRepo as AgentTracesRepository;
+      if (typeof tracesRepo.getTurnLabels === 'function') {
+        try { turnLabels = await tracesRepo.getTurnLabels(sessionId); } catch { /* ignore */ }
+      }
+      return this.aggregator.aggregateSessionDetail(sessionId, spans, turnLabels);
     } catch (err) {
       console.error('[CopilotCostTracker] getSessionDetail error:', err);
       return null;
@@ -182,12 +189,12 @@ export class CostTrackingService implements vscode.Disposable {
     const oneHourAgo = Date.now() - 60 * 60 * 1000;
     if (latest.startTimeMs < oneHourAgo) return null;
 
-    // Subagent spans have chatSessionId set to a tool-call ID (e.g. "toolu_...").
+    // Subagent spans have chatSessionId set to a tool-call ID (e.g. "toolu_..." or "call_...").
     // Resolve to the real parent session via trace_id correlation.
-    if (latest.chatSessionId && latest.chatSessionId.startsWith('toolu_')) {
+    if (latest.chatSessionId && (latest.chatSessionId.startsWith('toolu_') || latest.chatSessionId.startsWith('call_'))) {
       // Find another span in the same trace with a real session ID
       const parentSpan = candidates.find(
-        s => s.traceId === latest.traceId && s.chatSessionId && !s.chatSessionId.startsWith('toolu_')
+        s => s.traceId === latest.traceId && s.chatSessionId && !s.chatSessionId.startsWith('toolu_') && !s.chatSessionId.startsWith('call_')
       );
       if (parentSpan) return parentSpan.chatSessionId;
     }
