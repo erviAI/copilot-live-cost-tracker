@@ -164,16 +164,29 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     .chart-svg {
       display: block;
       width: 100%;
-      height: 90px;
+      height: 70px;
+    }
+
+    .chart-container {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .chart-labels {
+      display: flex;
+      justify-content: space-around;
+      margin-top: 4px;
+    }
+
+    .chart-day-label {
+      font-size: 9px;
+      color: var(--text-muted);
+      text-align: center;
+      flex: 1;
     }
 
     .chart-bar-rect {
       fill: var(--vscode-charts-blue, var(--vscode-textLink-foreground, #3794ff));
-    }
-
-    .chart-bar-label {
-      font-size: 9px;
-      fill: var(--text-muted);
     }
 
     .session-list { list-style: none; }
@@ -587,11 +600,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         : days.map(d => (Number.isFinite(d.requests) ? d.requests : 0));
       const maxValue = Math.max.apply(null, values.concat([useCost ? 0.01 : 1]));
 
-      // SVG-based chart: bulletproof rendering, no flex/percentage-height pitfalls.
+      // SVG for bars only (stretched to fill width), labels rendered as HTML below.
       const viewW = 200;
-      const viewH = 90;
-      const labelH = 14;
-      const chartH = viewH - labelH;
+      const chartH = 70;
       const gap = 4;
       const n = days.length;
       const barW = (viewW - gap * (n - 1)) / n;
@@ -602,19 +613,22 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const h = Math.max(Math.min(safeRatio * chartH, chartH), 1);
         const x = i * (barW + gap);
         const y = chartH - h;
-        const labelX = x + barW / 2;
-        const labelY = viewH - 3;
         const tooltip = d.dayLabel + ': ' + formatCost(d.totalCost) + ' \u00b7 ' + d.requests + ' calls';
         return '<rect class="chart-bar-rect" x="' + x + '" y="' + y +
           '" width="' + barW + '" height="' + h + '" rx="1.5">' +
-          '<title>' + escapeHtml(tooltip) + '</title></rect>' +
-          '<text class="chart-bar-label" x="' + labelX + '" y="' + labelY +
-          '" text-anchor="middle">' + escapeHtml(d.dayLabel) + '</text>';
+          '<title>' + escapeHtml(tooltip) + '</title></rect>';
       }).join('');
 
-      return '<svg class="chart-svg" viewBox="0 0 ' + viewW + ' ' + viewH +
+      const labels = days.map(d =>
+        '<span class="chart-day-label">' + escapeHtml(d.dayLabel) + '</span>'
+      ).join('');
+
+      return '<div class="chart-container">' +
+        '<svg class="chart-svg" viewBox="0 0 ' + viewW + ' ' + chartH +
         '" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">' +
-        bars + '</svg>';
+        bars + '</svg>' +
+        '<div class="chart-labels">' + labels + '</div>' +
+        '</div>';
     }
 
     function renderSessionList(sessions) {
