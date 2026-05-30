@@ -7,6 +7,7 @@
 export interface Span {
   spanId: string;
   traceId: string;
+  parentSpanId: string | null;
   operationName: string;
   agentName: string | null;
   requestModel: string | null;

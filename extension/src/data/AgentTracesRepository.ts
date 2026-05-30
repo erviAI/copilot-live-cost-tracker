@@ -10,6 +10,7 @@ const SPAN_SELECT_SQL = `
   SELECT
     s.span_id AS spanId,
     s.trace_id AS traceId,
+    s.parent_span_id AS parentSpanId,
     s.operation_name AS operationName,
     s.agent_name AS agentName,
     s.request_model AS requestModel,
@@ -92,13 +93,26 @@ export class AgentTracesRepository implements ISpanRepository {
   async getRecentSessionSpans(limit: number): Promise<Map<string, Span[]>> {
     const db = await this.getDb();
 
-    // First get the most recent session IDs
+    // First get the most recent session IDs.
+    // Resolve subagent spans (chat_session_id LIKE 'toolu_%') to their parent session
+    // via trace_id: all spans in a turn share trace_id, and the parent session's spans
+    // have the real UUID as chat_session_id.
     const sessionsSql = `
-      SELECT DISTINCT COALESCE(chat_session_id, conversation_id) AS session_id,
-             MAX(start_time_ms) AS last_activity
-      FROM spans
-      WHERE operation_name = 'chat'
-      GROUP BY COALESCE(chat_session_id, conversation_id)
+      SELECT DISTINCT
+        COALESCE(
+          (SELECT s2.chat_session_id FROM spans s2
+           WHERE s2.trace_id = s.trace_id
+             AND s2.chat_session_id NOT LIKE 'toolu_%'
+             AND s2.operation_name = 'chat'
+           LIMIT 1),
+          s.chat_session_id,
+          s.conversation_id
+        ) AS session_id,
+        MAX(s.start_time_ms) AS last_activity
+      FROM spans s
+      WHERE s.operation_name = 'chat'
+      GROUP BY session_id
+      HAVING session_id IS NOT NULL
       ORDER BY last_activity DESC
       LIMIT ?
     `;

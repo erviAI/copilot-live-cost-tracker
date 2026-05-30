@@ -153,6 +153,7 @@ async function parseMainJsonl(file: string, sessionId: string): Promise<Span[]> 
     spans.push({
       spanId: `dbg-${sessionId}-${idx++}`,
       traceId: `dbg-${sessionId}`,
+      parentSpanId: null,
       operationName: 'chat',
       agentName: 'GitHub Copilot Chat',
       requestModel: model,
