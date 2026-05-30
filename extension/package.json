@@ -5,6 +5,7 @@
   "version": "0.1.2",
   "publisher": "ervi",
   "license": "MIT",
+  "icon": "resources/icon.png",
   "engines": {
     "vscode": "^1.100.0"
   },
@@ -111,16 +112,27 @@
           "additionalProperties": {
             "type": "object",
             "properties": {
-              "input": { "type": "number" },
-              "output": { "type": "number" },
-              "cached": { "type": "number" },
-              "cacheWrite": { "type": "number" }
+              "input": {
+                "type": "number"
+              },
+              "output": {
+                "type": "number"
+              },
+              "cached": {
+                "type": "number"
+              },
+              "cacheWrite": {
+                "type": "number"
+              }
             }
           }
         },
         "copilotCostTracker.costDataSource": {
           "type": "string",
-          "enum": ["agent-traces-only", "with-fallback"],
+          "enum": [
+            "agent-traces-only",
+            "with-fallback"
+          ],
           "default": "agent-traces-only",
           "enumDescriptions": [
             "Use only agent-traces.db (recommended — accurate cache read/write data)",
