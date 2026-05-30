@@ -11,6 +11,7 @@ import { openDatabase, type Database } from './sqlite.js';
  */
 export class StateRepository implements ISessionTitleResolver {
   private cache: Map<string, string> | null = null;
+  private workspaceCache: Map<string, string> | null = null;
   private readonly workspaceStorageRoot: string | null;
   private readonly sessionStoreDbPath: string | null;
 
@@ -37,6 +38,7 @@ export class StateRepository implements ISessionTitleResolver {
     }
 
     const titles = new Map<string, string>();
+    const workspaces = new Map<string, string>();
 
     if (!this.workspaceStorageRoot || !fs.existsSync(this.workspaceStorageRoot)) {
       return titles;
@@ -71,9 +73,16 @@ export class StateRepository implements ISessionTitleResolver {
           entries?: Record<string, { title?: string; isEmpty?: boolean }>;
         };
         if (parsed.entries) {
+          // Resolve workspace name for this folder (once per folder)
+          const wsName = resolveWorkspaceName(this.workspaceStorageRoot, wsDir);
+
           for (const [id, entry] of Object.entries(parsed.entries)) {
             if (entry.title && entry.title !== 'New Chat' && !entry.isEmpty) {
               titles.set(id, entry.title);
+            }
+            // Map every session in this workspace (whether titled or not)
+            if (wsName) {
+              workspaces.set(id, wsName);
             }
           }
         }
@@ -88,7 +97,17 @@ export class StateRepository implements ISessionTitleResolver {
     this.addDebugLogFallbackTitles(titles);
 
     this.cache = titles;
+    this.workspaceCache = workspaces;
     return titles;
+  }
+
+  async getAllWorkspaces(): Promise<Map<string, string>> {
+    if (this.workspaceCache) {
+      return this.workspaceCache;
+    }
+    // Trigger the scan which populates both caches
+    await this.getAllTitles();
+    return this.workspaceCache ?? new Map();
   }
 
   private async addSessionStoreFallbackTitles(titles: Map<string, string>): Promise<void> {
@@ -191,9 +210,40 @@ export class StateRepository implements ISessionTitleResolver {
   /** Invalidate the cached titles (call when polling detects changes) */
   invalidateCache(): void {
     this.cache = null;
+    this.workspaceCache = null;
   }
 
   dispose(): void {
     this.cache = null;
+    this.workspaceCache = null;
+  }
+}
+
+/**
+ * Read workspace.json from a workspace storage folder and extract a short name.
+ * Returns the last path segment of the workspace folder URI (e.g. "cost-research").
+ */
+function resolveWorkspaceName(storageRoot: string, wsDir: string): string | null {
+  const wsJsonPath = path.join(storageRoot, wsDir, 'workspace.json');
+  try {
+    if (!fs.existsSync(wsJsonPath)) return null;
+    const content = JSON.parse(fs.readFileSync(wsJsonPath, 'utf8')) as {
+      folder?: string;
+      workspace?: string;
+    };
+    const uri = content.folder ?? content.workspace;
+    if (!uri) return null;
+    // Decode the URI and extract the last meaningful path segment
+    const decoded = decodeURIComponent(uri.replace(/^file:\/\/\//, ''));
+    // For .code-workspace files, use the filename without extension
+    if (decoded.endsWith('.code-workspace')) {
+      const base = path.basename(decoded, '.code-workspace');
+      return base;
+    }
+    // For folder URIs, use the last segment
+    const segments = decoded.replace(/[\\/]+$/, '').split(/[\\/]/);
+    return segments[segments.length - 1] || null;
+  } catch {
+    return null;
   }
 }

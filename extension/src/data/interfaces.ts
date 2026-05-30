@@ -58,6 +58,9 @@ export interface ISessionTitleResolver {
   /** Get all known session titles */
   getAllTitles(): Promise<Map<string, string>>;
 
+  /** Get workspace name for each session (sessionId → workspace folder name) */
+  getAllWorkspaces(): Promise<Map<string, string>>;
+
   /** Invalidate any cached titles so they are re-fetched on next call */
   invalidateCache(): void;
 

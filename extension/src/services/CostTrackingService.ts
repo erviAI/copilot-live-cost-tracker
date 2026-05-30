@@ -155,8 +155,11 @@ export class CostTrackingService implements vscode.Disposable {
       this.titleResolver.invalidateCache();
       const titles = await this.titleResolver.getAllTitles();
 
+      // Fetch workspace names for sessions (populated during title scan)
+      const sessionWorkspaces = await this.titleResolver.getAllWorkspaces();
+
       // Build dashboard
-      this.lastData = this.aggregator.buildDashboard(spans, titles, this.currentSessionId);
+      this.lastData = this.aggregator.buildDashboard(spans, titles, this.currentSessionId, sessionWorkspaces);
       this.lastData.dataSourceStatus = dataSourceStatus;
       this._onDidUpdate.fire(this.lastData);
     } catch (err) {
@@ -206,7 +209,7 @@ export class CostTrackingService implements vscode.Disposable {
     return {
       today: emptyPeriod,
       thisWeek: emptyPeriod,
-      currentSession: { ...emptyPeriod, sessionId: null, title: null, agentName: null, latestSpanTimeMs: null, spanCount: 0 },
+      currentSession: { ...emptyPeriod, sessionId: null, title: null, agentName: null, workspace: null, latestSpanTimeMs: null, spanCount: 0 },
       last7Days: [],
       recentSessions: [],
       updatedAt: new Date().toISOString(),
