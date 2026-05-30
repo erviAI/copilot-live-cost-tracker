@@ -10,7 +10,7 @@ export class StatusBarController implements vscode.Disposable {
 
   constructor() {
     this.statusBarItem = vscode.window.createStatusBarItem(
-      vscode.StatusBarAlignment.Left,
+      vscode.StatusBarAlignment.Right,
       50
     );
     this.statusBarItem.command = 'copilotCostTracker.openDashboard';
