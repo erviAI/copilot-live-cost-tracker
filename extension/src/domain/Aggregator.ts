@@ -15,7 +15,8 @@ export class Aggregator {
   buildDashboard(
     allSpans: Span[],
     sessionTitles: Map<string, string>,
-    currentSessionId: string | null
+    currentSessionId: string | null,
+    sessionWorkspaces?: Map<string, string | null>
   ): DashboardData {
     const now = new Date();
     const todayStart = startOfDay(now).getTime();
@@ -44,11 +45,12 @@ export class Aggregator {
         sessionId: currentSessionId,
         title: currentSessionId ? (sessionTitles.get(currentSessionId) ?? null) : null,
         agentName,
+        workspace: currentSessionId ? (sessionWorkspaces?.get(currentSessionId) ?? null) : null,
         latestSpanTimeMs,
         spanCount: sessionSpans.length,
       },
       last7Days: this.buildDailyBuckets(allSpans, now),
-      recentSessions: this.buildRecentSessions(allSpans, sessionTitles),
+      recentSessions: this.buildRecentSessions(allSpans, sessionTitles, sessionWorkspaces),
       updatedAt: now.toISOString(),
     };
   }
@@ -150,7 +152,7 @@ export class Aggregator {
   /**
    * Build recent session summaries from spans.
    */
-  private buildRecentSessions(spans: Span[], titles: Map<string, string>): SessionInfo[] {
+  private buildRecentSessions(spans: Span[], titles: Map<string, string>, workspaces?: Map<string, string | null>): SessionInfo[] {
     // Only include spans that belong to a real chat session (have chat_session_id).
     // Spans with only conversation_id are background/inline completions, not user sessions.
     // Also exclude spans from ignored utility agents (e.g. copilotLanguageModelWrapper).
@@ -190,6 +192,7 @@ export class Aggregator {
         title: titles.get(sessionId) ?? `Session ${sessionId.slice(0, 8)}`,
         model: primaryModel,
         agentName: null, // Enriched later by service layer
+        workspace: workspaces?.get(sessionId) ?? null,
         startedAt,
         endedAt,
         totalCost: period.totalCost,

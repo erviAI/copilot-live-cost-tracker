@@ -174,6 +174,35 @@ export class AgentTracesRepository implements ISpanRepository {
     this.db?.close();
     this.db = null;
   }
+
+  /**
+   * Get repository URL for each session from span_attributes.
+   * Queries the 'github.copilot.git.repository' attribute and groups by chat_session_id.
+   * Returns a Map of sessionId → repository short name (e.g. "erviAI/cost-research").
+   */
+  async getSessionRepositories(): Promise<Map<string, string>> {
+    const db = await this.getDb();
+    const sql = `
+      SELECT
+        COALESCE(sa_sess.value, s.chat_session_id) AS session_id,
+        sa_repo.value AS repo_url
+      FROM span_attributes sa_repo
+      JOIN spans s ON s.span_id = sa_repo.span_id
+      LEFT JOIN span_attributes sa_sess
+        ON sa_sess.span_id = s.span_id
+        AND sa_sess.key = 'copilot_chat.chat_session_id'
+      WHERE sa_repo.key = 'github.copilot.git.repository'
+        AND s.operation_name = 'chat'
+      GROUP BY session_id
+    `;
+    const rows = await db.all<{ session_id: string; repo_url: string }>(sql, []);
+    const map = new Map<string, string>();
+    for (const row of rows) {
+      if (!row.session_id || !row.repo_url) continue;
+      map.set(row.session_id, repoUrlToShortName(row.repo_url));
+    }
+    return map;
+  }
 }
 
 /**
@@ -239,4 +268,22 @@ function extractUserText(raw: string): string | null {
     }
   } catch { /* invalid JSON, skip */ }
   return null;
+}
+
+/**
+ * Convert a git remote URL to a short "owner/repo" name.
+ * Handles: https://github.com/owner/repo.git, git@github.com:owner/repo.git
+ */
+function repoUrlToShortName(url: string): string {
+  // Strip trailing .git
+  const cleaned = url.replace(/\.git$/, '');
+  // HTTPS: https://github.com/owner/repo
+  const httpsMatch = cleaned.match(/github\.com\/([^/]+\/[^/]+)$/);
+  if (httpsMatch) return httpsMatch[1];
+  // SSH: git@github.com:owner/repo
+  const sshMatch = cleaned.match(/github\.com:([^/]+\/[^/]+)$/);
+  if (sshMatch) return sshMatch[1];
+  // Fallback: last two path segments
+  const parts = cleaned.split('/').filter(Boolean);
+  return parts.length >= 2 ? parts.slice(-2).join('/') : cleaned;
 }

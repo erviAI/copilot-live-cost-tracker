@@ -231,6 +231,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       color: var(--text-secondary);
     }
 
+    .session-repo {
+      opacity: 0.85;
+    }
+
     .session-cost {
       font-weight: 600;
       white-space: nowrap;
@@ -539,6 +543,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         '<div class="session-title-row" style="margin-bottom:6px;font-weight:600;color:var(--vscode-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(period.title || '') + '">' +
           escapeHtml(title) +
         '</div>';
+      const workspaceRow = period.workspace
+        ? '<div style="margin-bottom:6px;font-size:0.8em;color:var(--text-secondary);">' + escapeHtml(period.workspace) + '</div>'
+        : '';
       const debugRows =
         '<div class="debug-block" style="margin-top:8px;padding:6px 8px;border:1px dashed var(--vscode-panel-border, #555);border-radius:4px;font-size:11px;color:var(--text-muted);">' +
           '<div style="font-weight:600;margin-bottom:4px;">Debug</div>' +
@@ -547,7 +554,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           statRow('Matched Spans', spanCount) +
           statRow('Latest Activity', latest) +
         '</div>';
-      return titleRow + renderCostCard(period, level) + debugRows;
+      return titleRow + workspaceRow + renderCostCard(period, level) + debugRows;
     }
 
     function escapeHtml(s) {
@@ -618,6 +625,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           '<div class="session-header">' +
           '<div class="session-info"><div class="session-title">' +
           '<span class="chevron">&#9654;</span> ' + escapeHtml(s.title) + '</div><div class="session-meta">' +
+          (s.workspace ? '<span class="session-repo">' + escapeHtml(s.workspace) + '</span> \\u00b7 ' : '') +
           (s.model ? shortModel(s.model) + ' \\u00b7 ' : '') + s.requests + ' calls \\u00b7 ' + timeAgo(s.endedAt) +
           '</div></div><span class="session-cost">' + formatCost(s.totalCost) + '</span></div>' +
           '<div class="session-detail" id="detail-' + escapeHtml(s.sessionId) + '"></div></li>'

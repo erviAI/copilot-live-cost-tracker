@@ -59,6 +59,7 @@ export interface SessionInfo {
   title: string;
   model: string | null;
   agentName: string | null;
+  workspace: string | null;
   startedAt: number;
   endedAt: number;
   totalCost: number;
@@ -88,6 +89,7 @@ export interface DashboardData {
     sessionId: string | null;
     title: string | null;
     agentName: string | null;
+    workspace: string | null;
     latestSpanTimeMs: number | null;
     spanCount: number;
   };
