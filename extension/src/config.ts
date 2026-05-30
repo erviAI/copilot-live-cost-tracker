@@ -53,3 +53,17 @@ export function getHistoryRetentionDays(): number {
 export function getHistoryScrapeInterval(): number {
   return vscode.workspace.getConfiguration(SECTION).get<number>('history.scrapeInterval', 30);
 }
+
+export interface DisplayCurrency {
+  code: string;
+  rate: number;
+}
+
+export function getDisplayCurrency(): DisplayCurrency | undefined {
+  const config = vscode.workspace.getConfiguration(SECTION);
+  const code = config.get<string>('displayCurrency.code', '').trim().toUpperCase();
+  if (!code) return undefined;
+  const rate = config.get<number>('displayCurrency.rate', 1);
+  if (rate <= 0) return undefined;
+  return { code, rate };
+}
