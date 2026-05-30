@@ -12,6 +12,7 @@ import type { Span } from './models.js';
  */
 export const IGNORED_AGENT_NAMES: ReadonlyArray<string> = [
   'copilotLanguageModelWrapper',
+  'gitCommitMessageGenerator',
 ];
 
 const ignoredSet = new Set(IGNORED_AGENT_NAMES.map(n => n.toLowerCase()));
