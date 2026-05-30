@@ -64,6 +64,11 @@ export interface SessionInfo {
   endedAt: number;
   totalCost: number;
   requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  byModel: ModelCost[];
 }
 
 /** Daily bucket for the 7-day chart */
@@ -168,4 +173,62 @@ export interface ModelPricing {
   output: number;
   cached: number;
   cacheWrite?: number;
+}
+
+// --- Cost History Persistence Types ---
+
+/** Per-model subset stored in history files */
+export interface ModelCostSnapshot {
+  model: string;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  totalCost: number;
+}
+
+/** Per-workspace breakdown in daily aggregate */
+export interface WorkspaceCost {
+  workspace: string;
+  totalCost: number;
+  requests: number;
+  sessionCount: number;
+}
+
+/** Per-session snapshot stored in current.json (today's sessions) */
+export interface SessionSnapshot {
+  sessionId: string;
+  title: string | null;
+  workspace: string | null;
+  totalCost: number;
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  byModel: ModelCostSnapshot[];
+  startedAt: number;
+  endedAt: number;
+}
+
+/** The current day's data (current.json) */
+export interface CurrentDayData {
+  date: string; // YYYY-MM-DD
+  lastUpdatedAt: string; // ISO timestamp
+  sessions: SessionSnapshot[];
+}
+
+/** Rolled-up daily aggregate (daily/YYYY-MM-DD.json) */
+export interface DailyAggregate {
+  date: string; // YYYY-MM-DD
+  totalCost: number;
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  byModel: ModelCostSnapshot[];
+  byWorkspace: WorkspaceCost[];
+  sessionCount: number;
 }

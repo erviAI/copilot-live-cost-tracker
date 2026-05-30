@@ -41,3 +41,15 @@ export type CostDataSource = 'agent-traces-only' | 'with-fallback';
 export function getCostDataSource(): CostDataSource {
   return vscode.workspace.getConfiguration(SECTION).get<CostDataSource>('costDataSource', 'agent-traces-only');
 }
+
+export function getHistoryEnabled(): boolean {
+  return vscode.workspace.getConfiguration(SECTION).get<boolean>('history.enabled', true);
+}
+
+export function getHistoryRetentionDays(): number {
+  return vscode.workspace.getConfiguration(SECTION).get<number>('history.retentionDays', 90);
+}
+
+export function getHistoryScrapeInterval(): number {
+  return vscode.workspace.getConfiguration(SECTION).get<number>('history.scrapeInterval', 30);
+}
