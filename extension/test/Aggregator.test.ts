@@ -273,5 +273,58 @@ describe('Aggregator', () => {
       expect(dashboard.recentSessions[0].sessionId).toBe(parentSessionId);
       expect(dashboard.recentSessions[0].requests).toBe(3);
     });
+
+    it('populates byWorkspace in today and thisWeek when sessionWorkspaces provided', () => {
+      const now = Date.now();
+      const spans = [
+        makeSpan({ spanId: 's1', chatSessionId: 'sess-a', conversationId: 'sess-a', startTimeMs: now - 1000, endTimeMs: now - 500 }),
+        makeSpan({ spanId: 's2', chatSessionId: 'sess-a', conversationId: 'sess-a', startTimeMs: now - 2000, endTimeMs: now - 1500 }),
+        makeSpan({ spanId: 's3', chatSessionId: 'sess-b', conversationId: 'sess-b', startTimeMs: now - 3000, endTimeMs: now - 2500 }),
+      ];
+
+      const workspaces = new Map<string, string | null>([
+        ['sess-a', 'my-project'],
+        ['sess-b', 'other-project'],
+      ]);
+
+      const dashboard = aggregator.buildDashboard(spans, new Map(), null, workspaces);
+
+      expect(dashboard.today.byWorkspace).toHaveLength(2);
+      const myProject = dashboard.today.byWorkspace.find(w => w.workspace === 'my-project')!;
+      const otherProject = dashboard.today.byWorkspace.find(w => w.workspace === 'other-project')!;
+      expect(myProject.requests).toBe(2);
+      expect(myProject.sessionCount).toBe(1);
+      expect(myProject.totalCost).toBeGreaterThan(0);
+      expect(otherProject.requests).toBe(1);
+      expect(otherProject.sessionCount).toBe(1);
+    });
+
+    it('groups spans with unknown workspace under "Unknown"', () => {
+      const now = Date.now();
+      const spans = [
+        makeSpan({ spanId: 's1', chatSessionId: 'sess-known', startTimeMs: now - 1000, endTimeMs: now - 500 }),
+        makeSpan({ spanId: 's2', chatSessionId: 'sess-unknown', startTimeMs: now - 2000, endTimeMs: now - 1500 }),
+      ];
+
+      const workspaces = new Map<string, string | null>([
+        ['sess-known', 'my-project'],
+        // sess-unknown not in map
+      ]);
+
+      const dashboard = aggregator.buildDashboard(spans, new Map(), null, workspaces);
+
+      const unknown = dashboard.today.byWorkspace.find(w => w.workspace === 'Unknown');
+      expect(unknown).toBeDefined();
+      expect(unknown!.requests).toBe(1);
+    });
+
+    it('returns empty byWorkspace when no sessionWorkspaces provided', () => {
+      const now = Date.now();
+      const spans = [makeSpan({ startTimeMs: now - 1000, endTimeMs: now - 500 })];
+      const dashboard = aggregator.buildDashboard(spans, new Map(), null);
+
+      expect(dashboard.today.byWorkspace).toEqual([]);
+      expect(dashboard.thisWeek.byWorkspace).toEqual([]);
+    });
   });
 });

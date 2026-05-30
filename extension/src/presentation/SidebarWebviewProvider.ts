@@ -440,6 +440,46 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       color: var(--text-muted);
       margin-top: 12px;
     }
+
+    details.subsection {
+      margin-top: 8px;
+      border-top: 1px solid var(--card-border);
+      padding-top: 6px;
+    }
+
+    details.subsection summary {
+      font-size: 0.8em;
+      color: var(--text-secondary);
+      cursor: pointer;
+      user-select: none;
+      font-weight: 500;
+      padding: 2px 0;
+    }
+
+    details.subsection summary:hover {
+      color: var(--text-primary);
+    }
+
+    details.subsection .model-table,
+    details.subsection .workspace-table {
+      margin-top: 4px;
+    }
+
+    .workspace-table {
+      width: 100%;
+      font-size: 0.85em;
+    }
+
+    .workspace-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 3px 0;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .workspace-row:last-child { border-bottom: none; }
+    .workspace-name { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; }
+    .workspace-cost { font-weight: 500; white-space: nowrap; margin-left: 8px; }
   </style>
 </head>
 <body>
@@ -481,6 +521,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     let expandedSessionId = null;
     const turnsExpandedSessions = {};
     const expandedTurnIds = {};
+    const detailsOpenState = {}; // tracks open/closed state of <details> subsections by id
 
     function render(data, budgetState) {
       const content = document.getElementById('content');
@@ -500,9 +541,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
       const html = [
         bannerHtml,
-        renderSection('TODAY', renderCostCard(data.today, budgetState?.dailyLevel)),
-        renderSection('THIS WEEK', renderWeekCard(data.thisWeek)),
-        renderSection('TODAY BY MODEL', renderModelTable(data.today.byModel)),
+        renderSection('TODAY', renderCostCard(data.today, budgetState?.dailyLevel) + renderCollapsibleModel('today-model', data.today.byModel) + renderCollapsibleWorkspace('today-ws', data.today.byWorkspace)),
+        renderSection('THIS WEEK', renderCostCard(data.thisWeek, budgetState?.weeklyLevel) + renderCollapsibleModel('week-model', data.thisWeek.byModel) + renderCollapsibleWorkspace('week-ws', data.thisWeek.byWorkspace)),
         renderSection('CURRENT SESSION', renderCurrentSessionCard(data.currentSession, budgetState?.sessionLevel)),
         renderSection('LAST 7 DAYS', renderChart(data.last7Days)),
         renderSection('RECENT SESSIONS', renderSessionList(data.recentSessions)),
@@ -510,6 +550,15 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       ].join('');
 
       content.innerHTML = html;
+
+      // Restore open state of collapsible <details> subsections
+      document.querySelectorAll('details.subsection[id]').forEach(function(el) {
+        if (detailsOpenState[el.id]) { el.open = true; }
+      });
+      // Track open/close changes
+      document.querySelectorAll('details.subsection[id]').forEach(function(el) {
+        el.addEventListener('toggle', function() { detailsOpenState[el.id] = el.open; });
+      });
 
       // Restore expanded session after re-render
       if (expandedSessionId) {
@@ -579,6 +628,26 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       return String(s).replace(/[&<>"']/g, function (c) {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
       });
+    }
+
+    function renderCollapsibleModel(id, models) {
+      if (!models || models.length === 0) return '';
+      return '<details class="subsection" id="' + id + '"><summary>By Model (' + models.length + ')</summary>' +
+        '<div class="model-table">' +
+        models.map(function(m) {
+          return '<div class="model-row"><span class="model-name">' + shortModel(m.model) +
+            '</span><span class="model-cost"' + costTitle(m.totalCost) + '>' + formatCost(m.totalCost) + '</span></div>';
+        }).join('') + '</div></details>';
+    }
+
+    function renderCollapsibleWorkspace(id, workspaces) {
+      if (!workspaces || workspaces.length === 0) return '';
+      return '<details class="subsection" id="' + id + '"><summary>By Workspace (' + workspaces.length + ')</summary>' +
+        '<div class="workspace-table">' +
+        workspaces.map(function(w) {
+          return '<div class="workspace-row"><span class="workspace-name">' + escapeHtml(w.workspace) +
+            '</span><span class="workspace-cost"' + costTitle(w.totalCost) + '>' + formatCost(w.totalCost) + '</span></div>';
+        }).join('') + '</div></details>';
     }
 
     function renderWeekCard(period) {

@@ -1,4 +1,4 @@
-import type { Span, ModelCost, PeriodCost, DailyBucket, SessionInfo, DashboardData, SessionDetailData, TurnCost, ModelDetailBreakdown, SpanDetail } from './models.js';
+import type { Span, ModelCost, PeriodCost, DailyBucket, SessionInfo, DashboardData, SessionDetailData, TurnCost, ModelDetailBreakdown, SpanDetail, WorkspaceCost } from './models.js';
 import { CostCalculator } from './CostCalculator.js';
 import { isIgnoredAgent } from './filters.js';
 
@@ -38,8 +38,8 @@ export class Aggregator {
     }
 
     return {
-      today: this.aggregatePeriod(todaySpans),
-      thisWeek: this.aggregatePeriod(weekSpans),
+      today: this.aggregatePeriod(todaySpans, sessionWorkspaces),
+      thisWeek: this.aggregatePeriod(weekSpans, sessionWorkspaces),
       currentSession: {
         ...this.aggregatePeriod(sessionSpans),
         sessionId: currentSessionId,
@@ -56,9 +56,9 @@ export class Aggregator {
   }
 
   /**
-   * Aggregate a set of spans into a PeriodCost with per-model breakdown.
+   * Aggregate a set of spans into a PeriodCost with per-model and per-workspace breakdown.
    */
-  aggregatePeriod(spans: Span[]): PeriodCost {
+  aggregatePeriod(spans: Span[], sessionWorkspaces?: Map<string, string | null>): PeriodCost {
     const byModel = new Map<string, {
       calls: number;
       inputTokens: number;
@@ -66,6 +66,9 @@ export class Aggregator {
       cachedTokens: number;
       cacheWriteTokens: number;
     }>();
+
+    // Workspace accumulator: workspace → { totalCost, requests, sessionIds }
+    const byWs = new Map<string, { totalCost: number; requests: number; sessionIds: Set<string> }>();
 
     for (const span of spans) {
       const model = span.responseModel ?? span.requestModel ?? 'unknown';
@@ -78,6 +81,16 @@ export class Aggregator {
       existing.cachedTokens += span.cachedTokens;
       existing.cacheWriteTokens += span.cacheWriteTokens;
       byModel.set(model, existing);
+
+      // Accumulate per-workspace if mapping provided
+      if (sessionWorkspaces) {
+        const sessionId = span.chatSessionId ?? span.conversationId;
+        const ws = (sessionId ? sessionWorkspaces.get(sessionId) : null) ?? 'Unknown';
+        const wsEntry = byWs.get(ws) ?? { totalCost: 0, requests: 0, sessionIds: new Set() };
+        wsEntry.requests++;
+        if (sessionId) { wsEntry.sessionIds.add(sessionId); }
+        byWs.set(ws, wsEntry);
+      }
     }
 
     const modelCosts: ModelCost[] = [];
@@ -112,6 +125,30 @@ export class Aggregator {
       totalCached += data.cachedTokens;
     }
 
+    // Now compute per-span cost for workspace totals
+    if (sessionWorkspaces) {
+      for (const span of spans) {
+        const sessionId = span.chatSessionId ?? span.conversationId;
+        const ws = (sessionId ? sessionWorkspaces.get(sessionId) : null) ?? 'Unknown';
+        const model = span.responseModel ?? span.requestModel ?? 'unknown';
+        const cost = this.calculator.calculate(model, span.inputTokens, span.outputTokens, span.cachedTokens, span.cacheWriteTokens);
+        const wsEntry = byWs.get(ws)!;
+        wsEntry.totalCost += cost?.totalCost ?? 0;
+      }
+    }
+
+    // Build workspace costs
+    const workspaceCosts: WorkspaceCost[] = [];
+    for (const [workspace, data] of byWs) {
+      workspaceCosts.push({
+        workspace,
+        totalCost: data.totalCost,
+        requests: data.requests,
+        sessionCount: data.sessionIds.size,
+      });
+    }
+    workspaceCosts.sort((a, b) => b.totalCost - a.totalCost);
+
     return {
       totalCost,
       requests: spans.length,
@@ -119,6 +156,7 @@ export class Aggregator {
       outputTokens: totalOutput,
       cachedTokens: totalCached,
       byModel: modelCosts.sort((a, b) => b.totalCost - a.totalCost),
+      byWorkspace: workspaceCosts,
     };
   }
 

@@ -51,6 +51,7 @@ export interface PeriodCost {
   outputTokens: number;
   cachedTokens: number;
   byModel: ModelCost[];
+  byWorkspace: WorkspaceCost[];
 }
 
 /** Session summary for the recent sessions list */
