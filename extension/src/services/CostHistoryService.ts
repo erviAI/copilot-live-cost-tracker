@@ -9,6 +9,7 @@ import type {
   ModelCostSnapshot,
   WorkspaceCost,
 } from '../domain/models.js';
+import { logger } from '../logger.js';
 
 /**
  * CostHistoryService persists aggregated cost data to JSON files so that
@@ -68,7 +69,7 @@ export class CostHistoryService {
 
       await this.atomicWrite(this.currentPath, currentDay);
     } catch (err) {
-      console.error('[CopilotCostTracker] History scrape error:', err);
+      logger.error('History scrape error:', err);
     }
   }
 
@@ -109,11 +110,11 @@ export class CostHistoryService {
         const date = entry.replace('.json', '');
         if (date < cutoffStr) {
           await fs.unlink(path.join(this.dailyDir, entry));
-          console.log(`[CopilotCostTracker] Pruned history file: ${entry}`);
+          logger.info(`Pruned history file: ${entry}`);
         }
       }
     } catch (err) {
-      console.error('[CopilotCostTracker] History prune error:', err);
+      logger.error('History prune error:', err);
     }
   }
 
@@ -260,7 +261,7 @@ export class CostHistoryService {
     };
     await this.atomicWrite(this.currentPath, fresh);
 
-    console.log(`[CopilotCostTracker] Rolled up ${sessions.length} sessions for ${date}`);
+    logger.info(`Rolled up ${sessions.length} sessions for ${date}`);
   }
 
   private async readCurrentDay(): Promise<CurrentDayData | null> {

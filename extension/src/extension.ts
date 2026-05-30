@@ -16,10 +16,14 @@ import { BudgetAlertService } from './services/BudgetAlertService.js';
 import { StatusBarController } from './presentation/StatusBarController.js';
 import { SidebarWebviewProvider } from './presentation/SidebarWebviewProvider.js';
 import { getPollingInterval, getBudgetThresholds, getPricingOverrides, getCostDataSource, getHistoryEnabled, getHistoryRetentionDays, getHistoryScrapeInterval } from './config.js';
+import { createLogger } from './logger.js';
 
 let _trackingService: CostTrackingService | null = null;
 
 export function activate(context: vscode.ExtensionContext): void {
+  const log = createLogger();
+  context.subscriptions.push(log);
+
   const appDataPath = getAppDataPath();
 
   // --- Data Layer ---
