@@ -202,8 +202,9 @@ export class Aggregator {
 
   /**
    * Aggregate session detail: per-turn costs and per-model breakdown with rate.
+   * @param turnLabels Map of traceId → user prompt label (from agent-traces.db)
    */
-  aggregateSessionDetail(sessionId: string, spans: Span[]): SessionDetailData {
+  aggregateSessionDetail(sessionId: string, spans: Span[], turnLabels?: Map<string, string>): SessionDetailData {
     // --- Per-turn breakdown ---
     // Prefer turnIndex for grouping; fall back to traceId when turnIndex is unavailable
     const hasTurnIndex = spans.some(s => s.turnIndex != null && s.turnIndex >= 0);
@@ -230,30 +231,79 @@ export class Aggregator {
     for (const [key, turnSpans] of sortedGroups) {
       const turnIndex = hasTurnIndex ? Number(key) : turnCounter++;
       const traceId = hasTurnIndex ? (turnSpans[0]?.traceId ?? key) : key;
+
+      // Split spans into parent and subagent groups
+      const parentSpans: Span[] = [];
+      const subagentGroups = new Map<string, Span[]>();
+      for (const span of turnSpans) {
+        if (span.chatSessionId && isToolCallSessionId(span.chatSessionId)) {
+          const arr = subagentGroups.get(span.chatSessionId) ?? [];
+          arr.push(span);
+          subagentGroups.set(span.chatSessionId, arr);
+        } else {
+          parentSpans.push(span);
+        }
+      }
+
+      // Build child turns for each subagent group
+      const children: TurnCost[] = [];
+      for (const [_subSessionId, subSpans] of subagentGroups) {
+        const subPeriod = this.aggregatePeriod(subSpans);
+        const subDuration = subSpans.reduce((sum, s) => sum + (s.endTimeMs - s.startTimeMs), 0);
+        const subSpanDetails: SpanDetail[] = subSpans.map(s => {
+          const model = s.responseModel ?? s.requestModel ?? 'unknown';
+          const cost = this.calculator.calculate(model, s.inputTokens, s.outputTokens, s.cachedTokens, s.cacheWriteTokens);
+          return {
+            traceId: s.traceId, agentName: s.agentName, model,
+            inputTokens: s.inputTokens, outputTokens: s.outputTokens,
+            cachedTokens: s.cachedTokens, cacheWriteTokens: s.cacheWriteTokens,
+            totalCost: cost?.totalCost ?? 0, durationMs: s.endTimeMs - s.startTimeMs,
+          };
+        });
+        children.push({
+          turnIndex,
+          traceId,
+          label: null,
+          agentName: subSpans[0]?.agentName ?? null,
+          model: subSpans[0]?.responseModel ?? subSpans[0]?.requestModel ?? null,
+          startTimeMs: Math.min(...subSpans.map(s => s.startTimeMs)),
+          llmCalls: subPeriod.requests,
+          inputTokens: subPeriod.inputTokens,
+          outputTokens: subPeriod.outputTokens,
+          cachedTokens: subPeriod.cachedTokens,
+          cacheWriteTokens: subPeriod.byModel.reduce((s, m) => s + m.cacheWriteTokens, 0),
+          totalCost: subPeriod.totalCost,
+          durationMs: subDuration,
+          spans: subSpanDetails,
+        });
+      }
+      // Sort children by start time
+      children.sort((a, b) => a.startTimeMs - b.startTimeMs);
+
+      // Use all spans for the parent turn totals (includes subagent costs)
       const period = this.aggregatePeriod(turnSpans);
       const durationMs = turnSpans.reduce((sum, s) => sum + (s.endTimeMs - s.startTimeMs), 0);
 
-      const spanDetails: SpanDetail[] = turnSpans.map(s => {
+      const spanDetails: SpanDetail[] = parentSpans.map(s => {
         const model = s.responseModel ?? s.requestModel ?? 'unknown';
         const cost = this.calculator.calculate(model, s.inputTokens, s.outputTokens, s.cachedTokens, s.cacheWriteTokens);
         return {
-          traceId: s.traceId,
-          agentName: s.agentName,
-          model,
-          inputTokens: s.inputTokens,
-          outputTokens: s.outputTokens,
-          cachedTokens: s.cachedTokens,
-          cacheWriteTokens: s.cacheWriteTokens,
-          totalCost: cost?.totalCost ?? 0,
-          durationMs: s.endTimeMs - s.startTimeMs,
+          traceId: s.traceId, agentName: s.agentName, model,
+          inputTokens: s.inputTokens, outputTokens: s.outputTokens,
+          cachedTokens: s.cachedTokens, cacheWriteTokens: s.cacheWriteTokens,
+          totalCost: cost?.totalCost ?? 0, durationMs: s.endTimeMs - s.startTimeMs,
         };
       });
+
+      // Resolve turn label from user prompt (keyed by traceId)
+      const label = turnLabels?.get(traceId) ?? null;
 
       turns.push({
         turnIndex,
         traceId,
-        agentName: turnSpans[0]?.agentName ?? null,
-        model: turnSpans[0]?.responseModel ?? turnSpans[0]?.requestModel ?? null,
+        label,
+        agentName: parentSpans[0]?.agentName ?? turnSpans[0]?.agentName ?? null,
+        model: parentSpans[0]?.responseModel ?? parentSpans[0]?.requestModel ?? turnSpans[0]?.responseModel ?? turnSpans[0]?.requestModel ?? null,
         startTimeMs: Math.min(...turnSpans.map(s => s.startTimeMs)),
         llmCalls: period.requests,
         inputTokens: period.inputTokens,
@@ -263,6 +313,7 @@ export class Aggregator {
         totalCost: period.totalCost,
         durationMs,
         spans: spanDetails,
+        children: children.length > 0 ? children : undefined,
       });
     }
 
@@ -320,7 +371,7 @@ function getCanonicalSessionId(span: Span, _conversationToChat: Map<string, stri
 
 /** Returns true if the session ID looks like a tool-call ID (subagent invocation). */
 function isToolCallSessionId(id: string): boolean {
-  return id.startsWith('toolu_');
+  return id.startsWith('toolu_') || id.startsWith('call_');
 }
 
 function buildConversationToChatMap(spans: Span[]): Map<string, string> {

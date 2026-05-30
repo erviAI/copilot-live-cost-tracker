@@ -288,6 +288,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     .span-row { display: none; opacity: 0.75; font-size: 0.9em; }
     .span-row.visible { display: table-row; }
     .span-row td:first-child { padding-left: 16px; }
+    .subagent-row { cursor: pointer; opacity: 0.9; font-size: 0.95em; }
+    .subagent-row td:first-child { padding-left: 1.2em; }
+    .subagent-span-row { display: none; opacity: 0.7; font-size: 0.85em; }
+    .subagent-span-row.visible { display: table-row; }
     .turn-row { cursor: pointer; }
     .turns-section-title { cursor: pointer; }
     .section-chevron, .turn-chevron {
@@ -305,6 +309,11 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     .turn-agent {
       color: var(--accent);
       font-weight: 500;
+    }
+    .turn-label {
+      color: var(--vscode-foreground);
+      font-size: 0.9em;
+      opacity: 0.9;
     }
     .turn-trace {
       color: var(--text-secondary);
@@ -639,29 +648,55 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       }
 
       // Turn row expand/collapse
-      var turnRow = e.target.closest('.turn-row');
+      var turnRow = e.target.closest('.turn-row') || e.target.closest('.subagent-row');
       if (turnRow) {
         var turnId = turnRow.dataset.turnId;
         var isOpen = turnRow.classList.contains('expanded');
-        // Collapse all turn rows first
-        document.querySelectorAll('.turn-row.expanded').forEach(function(tr) {
-          tr.classList.remove('expanded');
-          var chev = tr.querySelector('.turn-chevron');
-          if (chev) chev.classList.remove('open');
-          document.querySelectorAll('.span-row[data-parent="' + tr.dataset.turnId + '"]').forEach(function(sr) {
-            sr.classList.remove('visible');
+        // For top-level turn rows, collapse all other turn rows first
+        if (turnRow.classList.contains('turn-row')) {
+          document.querySelectorAll('.turn-row.expanded').forEach(function(tr) {
+            tr.classList.remove('expanded');
+            var chev = tr.querySelector('.turn-chevron');
+            if (chev) chev.classList.remove('open');
+            document.querySelectorAll('.span-row[data-parent="' + tr.dataset.turnId + '"]').forEach(function(sr) {
+              sr.classList.remove('visible');
+              // Also collapse any expanded subagent rows within
+              if (sr.classList.contains('subagent-row') && sr.classList.contains('expanded')) {
+                sr.classList.remove('expanded');
+                var subChev = sr.querySelector('.turn-chevron');
+                if (subChev) subChev.classList.remove('open');
+                document.querySelectorAll('[data-parent="' + sr.dataset.turnId + '"]').forEach(function(ssr) {
+                  ssr.classList.remove('visible');
+                });
+              }
+            });
           });
-        });
+        }
         if (!isOpen) {
           turnRow.classList.add('expanded');
           var chevron = turnRow.querySelector('.turn-chevron');
           if (chevron) chevron.classList.add('open');
-          document.querySelectorAll('.span-row[data-parent="' + turnId + '"]').forEach(function(sr) {
+          document.querySelectorAll('.span-row[data-parent="' + turnId + '"], .subagent-span-row[data-parent="' + turnId + '"]').forEach(function(sr) {
             sr.classList.add('visible');
           });
-          if (expandedSessionId) expandedTurnIds[expandedSessionId] = turnId;
+          if (expandedSessionId && turnRow.classList.contains('turn-row')) expandedTurnIds[expandedSessionId] = turnId;
         } else {
-          if (expandedSessionId) delete expandedTurnIds[expandedSessionId];
+          turnRow.classList.remove('expanded');
+          var chevClose = turnRow.querySelector('.turn-chevron');
+          if (chevClose) chevClose.classList.remove('open');
+          document.querySelectorAll('.span-row[data-parent="' + turnId + '"], .subagent-span-row[data-parent="' + turnId + '"]').forEach(function(sr) {
+            sr.classList.remove('visible');
+            // Collapse nested subagent rows too
+            if (sr.classList.contains('subagent-row') && sr.classList.contains('expanded')) {
+              sr.classList.remove('expanded');
+              var subChev2 = sr.querySelector('.turn-chevron');
+              if (subChev2) subChev2.classList.remove('open');
+              document.querySelectorAll('[data-parent="' + sr.dataset.turnId + '"]').forEach(function(ssr) {
+                ssr.classList.remove('visible');
+              });
+            }
+          });
+          if (expandedSessionId && turnRow.classList.contains('turn-row')) delete expandedTurnIds[expandedSessionId];
         }
         return;
       }
@@ -730,8 +765,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           var traceLabel = t.traceId ? t.traceId.slice(0, 8) : ('T' + t.turnIndex);
           var timeLabel = t.startTimeMs ? formatClock(t.startTimeMs) : '';
           var agentLabel = t.agentName ? escapeHtml(t.agentName) : '';
+          var turnLabel = t.label ? escapeHtml(t.label) : '';
           var totalTokens = (t.inputTokens || 0) + (t.outputTokens || 0) + (t.cachedTokens || 0);
           var tipLines = [
+            t.label ? 'Prompt: ' + t.label : '',
             t.agentName ? 'Agent: ' + t.agentName : '',
             t.model ? 'Model: ' + shortModel(t.model) : '',
             'Trace: ' + (t.traceId || ''),
@@ -743,7 +780,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           ].filter(Boolean);
           var tipHtml = tipLines.map(function(l) { return '<div>' + escapeHtml(l) + '</div>'; }).join('');
           html += '<tr class="turn-row has-tip" data-turn-id="' + turnId + '">' +
-            '<td><span class="chevron turn-chevron">&#9654;</span> ' + (timeLabel ? '<span class="turn-time">[' + timeLabel + ']</span> ' : '') + (agentLabel ? '<span class="turn-agent">' + agentLabel + '</span> ' : '') + '<span class="turn-trace">' + traceLabel + '</span>' +
+            '<td><span class="chevron turn-chevron">&#9654;</span> ' + (timeLabel ? '<span class="turn-time">[' + timeLabel + ']</span> ' : '') + (turnLabel ? '<span class="turn-label">' + turnLabel + '</span>' : (agentLabel ? '<span class="turn-agent">' + agentLabel + '</span> ' : '') + '<span class="turn-trace">' + traceLabel + '</span>') +
             '<span class="tip">' + tipHtml + '</span></td>' +
             '<td class="num">' + t.llmCalls + '</td>' +
             '<td class="num">' + formatCost(t.totalCost) + '</td>' +
@@ -773,6 +810,45 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
                 '<td class="num">' + formatTokens(sp.outputTokens) + '</td>' +
                 '<td class="num">' + formatTokens(sp.cachedTokens) + '</td>' +
                 '<td class="num">' + formatTokens(sp.cacheWriteTokens) + '</td></tr>';
+            });
+          }
+          // Subagent child turns (indented, shown as distinct labeled groups)
+          if (t.children && t.children.length > 0) {
+            t.children.forEach(function(child, childIdx) {
+              var childId = turnId + '-child-' + childIdx;
+              var childAgent = child.agentName ? escapeHtml(child.agentName) : 'subagent';
+              var childTime = child.startTimeMs ? formatClock(child.startTimeMs) : '';
+              var childTipLines = [
+                child.agentName ? 'Agent: ' + child.agentName : '',
+                child.model ? 'Model: ' + shortModel(child.model) : '',
+                'Duration: ' + formatDuration(child.durationMs),
+                'Calls: ' + child.llmCalls,
+                'Cost: ' + formatCost(child.totalCost)
+              ].filter(Boolean);
+              var childTipHtml = childTipLines.map(function(l) { return '<div>' + escapeHtml(l) + '</div>'; }).join('');
+              html += '<tr class="span-row subagent-row has-tip" data-parent="' + turnId + '" data-turn-id="' + childId + '">' +
+                '<td><span class="chevron turn-chevron">&#9654;</span> ' + (childTime ? '<span class="turn-time">[' + childTime + ']</span> ' : '') + '<span class="turn-agent">' + childAgent + '</span>' +
+                '<span class="tip">' + childTipHtml + '</span></td>' +
+                '<td class="num">' + child.llmCalls + '</td>' +
+                '<td class="num">' + formatCost(child.totalCost) + '</td>' +
+                '<td class="num">' + formatTokens(child.inputTokens) + '</td>' +
+                '<td class="num">' + formatTokens(child.outputTokens) + '</td>' +
+                '<td class="num">' + formatTokens(child.cachedTokens) + '</td>' +
+                '<td class="num">' + formatTokens(child.cacheWriteTokens) + '</td></tr>';
+              // Nested spans within the child subagent
+              if (child.spans && child.spans.length > 0) {
+                child.spans.forEach(function(csp, cspIdx) {
+                  var cspAgent = csp.agentName ? '<span class="turn-agent">' + escapeHtml(csp.agentName) + '</span> ' : '';
+                  html += '<tr class="span-row subagent-span-row" data-parent="' + childId + '">' +
+                    '<td style="padding-left:2.4em">' + cspAgent + shortModel(csp.model) + '</td>' +
+                    '<td class="num">' + (cspIdx + 1) + '</td>' +
+                    '<td class="num">' + formatCost(csp.totalCost) + '</td>' +
+                    '<td class="num">' + formatTokens(csp.inputTokens) + '</td>' +
+                    '<td class="num">' + formatTokens(csp.outputTokens) + '</td>' +
+                    '<td class="num">' + formatTokens(csp.cachedTokens) + '</td>' +
+                    '<td class="num">' + formatTokens(csp.cacheWriteTokens) + '</td></tr>';
+                });
+              }
             });
           }
         });

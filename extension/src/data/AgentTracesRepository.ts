@@ -65,13 +65,53 @@ export class AgentTracesRepository implements ISpanRepository {
 
   async getSpansForSession(sessionId: string): Promise<Span[]> {
     const db = await this.getDb();
+    // Also include subagent spans that share a trace_id with the session's spans
+    // but have a tool-call ID (toolu_/call_) as their chat_session_id.
     const sql = SPAN_SELECT_SQL + `
       WHERE s.operation_name = 'chat'
-        AND (s.chat_session_id = ? OR s.conversation_id = ?)
+        AND (
+          s.chat_session_id = ? OR s.conversation_id = ?
+          OR (
+            (s.chat_session_id LIKE 'toolu_%' OR s.chat_session_id LIKE 'call_%')
+            AND s.trace_id IN (
+              SELECT s2.trace_id FROM spans s2
+              WHERE s2.operation_name = 'chat'
+                AND (s2.chat_session_id = ? OR s2.conversation_id = ?)
+            )
+          )
+        )
       ORDER BY s.start_time_ms ASC
     `;
-    const rows = await db.all<Span>(sql, [sessionId, sessionId]);
+    const rows = await db.all<Span>(sql, [sessionId, sessionId, sessionId, sessionId]);
     return rows.map(normalizeTimestamps).filter(shouldIncludeChatSpan);
+  }
+
+  /**
+   * Get user prompt labels for turns in a session.
+   * Extracts the text from `copilot_chat.user_request` attribute on spans containing user prompts.
+   * Returns a map of traceId → user prompt (first 50 chars).
+   */
+  async getTurnLabels(sessionId: string): Promise<Map<string, string>> {
+    const db = await this.getDb();
+    const sql = `
+      SELECT s.trace_id, a.value
+      FROM spans s
+      JOIN span_attributes a ON a.span_id = s.span_id AND a.key = 'copilot_chat.user_request'
+      WHERE s.operation_name = 'chat'
+        AND (s.chat_session_id = ? OR s.conversation_id = ?)
+        AND s.chat_session_id NOT LIKE 'toolu_%'
+        AND s.chat_session_id NOT LIKE 'call_%'
+        AND a.value LIKE '%<userRequest>%'
+      ORDER BY s.start_time_ms ASC
+    `;
+    const rows = await db.all<{ trace_id: string; value: string }>(sql, [sessionId, sessionId]);
+    const map = new Map<string, string>();
+    for (const row of rows) {
+      if (map.has(row.trace_id)) continue; // only first per trace
+      const label = extractUserText(row.value);
+      if (label) map.set(row.trace_id, label);
+    }
+    return map;
   }
 
   async getSpansSince(timestampMs: number): Promise<Span[]> {
@@ -103,6 +143,7 @@ export class AgentTracesRepository implements ISpanRepository {
           (SELECT s2.chat_session_id FROM spans s2
            WHERE s2.trace_id = s.trace_id
              AND s2.chat_session_id NOT LIKE 'toolu_%'
+             AND s2.chat_session_id NOT LIKE 'call_%'
              AND s2.operation_name = 'chat'
            LIMIT 1),
           s.chat_session_id,
@@ -171,4 +212,31 @@ export function shouldIncludeChatSpan(span: Span): boolean {
     span.cacheWriteTokens > 0;
 
   return !isCanceled || hasResponseModel || hasUsage;
+}
+
+const MAX_LABEL_LENGTH = 50;
+
+/**
+ * Extract user-visible text from `copilot_chat.user_request` JSON value.
+ * Format is a JSON array of content blocks: [{"type":"text","text":"..."}]
+ * The user's actual message is wrapped in <userRequest>...</userRequest> tags.
+ */
+function extractUserText(raw: string): string | null {
+  try {
+    const blocks = JSON.parse(raw);
+    if (!Array.isArray(blocks)) return null;
+    for (const block of blocks) {
+      if (!block.text || typeof block.text !== 'string') continue;
+      // Skip tool_result blocks
+      if (block.type === 'tool_result') continue;
+      // Extract text from <userRequest> tags
+      const match = block.text.match(/<userRequest>\s*([\s\S]*?)\s*<\/userRequest>/);
+      if (match) {
+        const text = match[1].trim();
+        if (text.length === 0) continue;
+        return text.length > MAX_LABEL_LENGTH ? text.slice(0, MAX_LABEL_LENGTH) + '…' : text;
+      }
+    }
+  } catch { /* invalid JSON, skip */ }
+  return null;
 }

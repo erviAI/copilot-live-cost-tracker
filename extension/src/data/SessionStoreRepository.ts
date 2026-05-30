@@ -55,6 +55,18 @@ export class SessionStoreRepository implements ISessionMetadataRepository {
     return rows.map(mapRow);
   }
 
+  /** Get user messages for each turn in a session, keyed by turn_index */
+  async getTurnMessages(sessionId: string): Promise<Map<number, string>> {
+    const db = await this.getDb();
+    const sql = `SELECT turn_index, user_message FROM turns WHERE session_id = ? AND user_message IS NOT NULL ORDER BY turn_index`;
+    const rows = await db.all<{ turn_index: number; user_message: string }>(sql, [sessionId]);
+    const map = new Map<number, string>();
+    for (const row of rows) {
+      map.set(row.turn_index, row.user_message);
+    }
+    return map;
+  }
+
   dispose(): void {
     this.db?.close();
     this.db = null;
