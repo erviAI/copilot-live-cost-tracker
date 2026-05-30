@@ -127,6 +127,25 @@
             "Fall back to debug-logs when agent-traces unavailable (cache write data will be missing)"
           ],
           "description": "Where to read cost data from. agent-traces.db is the recommended source as it includes accurate cache read/write token counts."
+        },
+        "copilotCostTracker.history.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable persistent cost history. Saves daily aggregates to files so data survives agent-traces.db resets."
+        },
+        "copilotCostTracker.history.retentionDays": {
+          "type": "number",
+          "default": 90,
+          "minimum": 7,
+          "maximum": 365,
+          "description": "Number of days to retain daily cost history files."
+        },
+        "copilotCostTracker.history.scrapeInterval": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "maximum": 600,
+          "description": "Number of poll cycles between history scrapes. At default 10s polling, 30 cycles = ~5 minutes between file writes."
         }
       }
     }

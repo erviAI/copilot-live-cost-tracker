@@ -11,10 +11,13 @@ import { PricingEngine } from './domain/PricingEngine.js';
 import { CostCalculator } from './domain/CostCalculator.js';
 import { Aggregator } from './domain/Aggregator.js';
 import { CostTrackingService } from './services/CostTrackingService.js';
+import { CostHistoryService } from './services/CostHistoryService.js';
 import { BudgetAlertService } from './services/BudgetAlertService.js';
 import { StatusBarController } from './presentation/StatusBarController.js';
 import { SidebarWebviewProvider } from './presentation/SidebarWebviewProvider.js';
-import { getPollingInterval, getBudgetThresholds, getPricingOverrides, getCostDataSource } from './config.js';
+import { getPollingInterval, getBudgetThresholds, getPricingOverrides, getCostDataSource, getHistoryEnabled, getHistoryRetentionDays, getHistoryScrapeInterval } from './config.js';
+
+let _trackingService: CostTrackingService | null = null;
 
 export function activate(context: vscode.ExtensionContext): void {
   const appDataPath = getAppDataPath();
@@ -41,8 +44,22 @@ export function activate(context: vscode.ExtensionContext): void {
     debugLogsRepo,
     getCostDataSource
   );
+  _trackingService = trackingService;
 
   const budgetService = new BudgetAlertService(getBudgetThresholds);
+
+  // --- Cost History (file-based persistence) ---
+  if (getHistoryEnabled()) {
+    const historyService = new CostHistoryService(
+      context.globalStorageUri.fsPath,
+      getHistoryRetentionDays
+    );
+    trackingService.setHistoryService(historyService, getHistoryScrapeInterval());
+    // Check if a day rollover happened while extension was inactive
+    historyService.checkRollup();
+    // Prune old history files on activation
+    historyService.prune();
+  }
 
   // --- Presentation ---
   const statusBar = new StatusBarController();
@@ -108,7 +125,11 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 }
 
-export function deactivate(): void {
+export async function deactivate(): Promise<void> {
+  // Flush history before shutdown
+  if (_trackingService) {
+    await _trackingService.flushHistory();
+  }
   disposeWorker();
 }
 

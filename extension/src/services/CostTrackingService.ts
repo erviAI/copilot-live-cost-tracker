@@ -3,6 +3,7 @@ import type { ISpanRepository, ISessionTitleResolver } from '../data/interfaces.
 import type { AgentTracesRepository } from '../data/AgentTracesRepository.js';
 import type { Span, DashboardData, SessionDetailData, DataSourceStatus } from '../domain/models.js';
 import type { CostDataSource } from '../config.js';
+import type { CostHistoryService } from './CostHistoryService.js';
 import { Aggregator } from '../domain/Aggregator.js';
 import { isIgnoredAgent } from '../domain/filters.js';
 
@@ -20,6 +21,9 @@ export class CostTrackingService implements vscode.Disposable {
   private lastData: DashboardData | null = null;
   private currentSessionId: string | null = null;
   private disposed = false;
+  private pollCount = 0;
+  private historyService: CostHistoryService | null = null;
+  private historyScrapeInterval = 30;
 
   constructor(
     private readonly spanRepo: ISpanRepository,
@@ -29,6 +33,12 @@ export class CostTrackingService implements vscode.Disposable {
     private readonly backfillRepo: ISpanRepository | null = null,
     private readonly getCostDataSource: () => CostDataSource = () => 'agent-traces-only'
   ) {}
+
+  /** Attach a history service for periodic persistence */
+  setHistoryService(service: CostHistoryService, scrapeInterval: number): void {
+    this.historyService = service;
+    this.historyScrapeInterval = scrapeInterval;
+  }
 
   /** Start the polling loop */
   start(): void {
@@ -162,6 +172,12 @@ export class CostTrackingService implements vscode.Disposable {
       this.lastData = this.aggregator.buildDashboard(spans, titles, this.currentSessionId, sessionWorkspaces);
       this.lastData.dataSourceStatus = dataSourceStatus;
       this._onDidUpdate.fire(this.lastData);
+
+      // Periodically scrape to history files
+      this.pollCount++;
+      if (this.historyService && this.pollCount % this.historyScrapeInterval === 0) {
+        this.historyService.scrape(this.lastData);
+      }
     } catch (err) {
       // Log but don't crash — the extension should be resilient
       console.error('[CopilotCostTracker] Poll error:', err);
@@ -224,6 +240,13 @@ export class CostTrackingService implements vscode.Disposable {
   /** Update polling interval when settings change */
   onConfigurationChanged(): void {
     this.scheduleNext();
+  }
+
+  /** Flush history to disk (call on deactivation) */
+  async flushHistory(): Promise<void> {
+    if (this.historyService && this.lastData) {
+      await this.historyService.scrape(this.lastData);
+    }
   }
 
   dispose(): void {

@@ -197,6 +197,11 @@ export class Aggregator {
         endedAt,
         totalCost: period.totalCost,
         requests: period.requests,
+        inputTokens: period.inputTokens,
+        outputTokens: period.outputTokens,
+        cachedTokens: period.cachedTokens,
+        cacheWriteTokens: period.byModel.reduce((sum, m) => sum + m.cacheWriteTokens, 0),
+        byModel: period.byModel,
       });
     }
 
