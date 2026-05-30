@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { ISpanRepository, ISessionTitleResolver } from '../data/interfaces.js';
+import type { ISpanRepository, ISessionTitleResolver, ISessionMetadataRepository } from '../data/interfaces.js';
 import type { Span, DashboardData, SessionDetailData, DataSourceStatus } from '../domain/models.js';
 import type { CostDataSource } from '../config.js';
 import { Aggregator } from '../domain/Aggregator.js';
@@ -26,7 +26,8 @@ export class CostTrackingService implements vscode.Disposable {
     private readonly aggregator: Aggregator,
     private readonly getPollingInterval: () => number,
     private readonly backfillRepo: ISpanRepository | null = null,
-    private readonly getCostDataSource: () => CostDataSource = () => 'agent-traces-only'
+    private readonly getCostDataSource: () => CostDataSource = () => 'agent-traces-only',
+    private readonly metadataRepo: ISessionMetadataRepository | null = null
   ) {}
 
   /** Start the polling loop */
@@ -148,8 +149,19 @@ export class CostTrackingService implements vscode.Disposable {
       this.titleResolver.invalidateCache();
       const titles = await this.titleResolver.getAllTitles();
 
+      // Fetch session repositories for workspace labeling
+      let sessionRepositories: Map<string, string | null> | undefined;
+      if (this.metadataRepo) {
+        try {
+          const metadata = await this.metadataRepo.getRecentSessions(50);
+          sessionRepositories = new Map(metadata.map(m => [m.id, m.repository]));
+        } catch (err) {
+          console.warn('[CopilotCostTracker] Failed to fetch session metadata:', err);
+        }
+      }
+
       // Build dashboard
-      this.lastData = this.aggregator.buildDashboard(spans, titles, this.currentSessionId);
+      this.lastData = this.aggregator.buildDashboard(spans, titles, this.currentSessionId, sessionRepositories);
       this.lastData.dataSourceStatus = dataSourceStatus;
       this._onDidUpdate.fire(this.lastData);
     } catch (err) {

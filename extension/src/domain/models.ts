@@ -59,6 +59,7 @@ export interface SessionInfo {
   title: string;
   model: string | null;
   agentName: string | null;
+  repository: string | null;
   startedAt: number;
   endedAt: number;
   totalCost: number;

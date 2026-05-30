@@ -231,6 +231,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       color: var(--text-secondary);
     }
 
+    .session-repo {
+      opacity: 0.8;
+    }
+
     .session-cost {
       font-weight: 600;
       white-space: nowrap;
@@ -609,6 +613,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           '<div class="session-header">' +
           '<div class="session-info"><div class="session-title">' +
           '<span class="chevron">&#9654;</span> ' + escapeHtml(s.title) + '</div><div class="session-meta">' +
+          (s.repository ? '<span class="session-repo">' + escapeHtml(s.repository) + '</span> \\u00b7 ' : '') +
           (s.model ? shortModel(s.model) + ' \\u00b7 ' : '') + s.requests + ' calls \\u00b7 ' + timeAgo(s.endedAt) +
           '</div></div><span class="session-cost">' + formatCost(s.totalCost) + '</span></div>' +
           '<div class="session-detail" id="detail-' + escapeHtml(s.sessionId) + '"></div></li>'

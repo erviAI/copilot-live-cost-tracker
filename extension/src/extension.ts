@@ -39,7 +39,8 @@ export function activate(context: vscode.ExtensionContext): void {
     aggregator,
     getPollingInterval,
     debugLogsRepo,
-    getCostDataSource
+    getCostDataSource,
+    sessionStoreRepo
   );
 
   const budgetService = new BudgetAlertService(getBudgetThresholds);
