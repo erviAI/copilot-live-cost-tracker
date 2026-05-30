@@ -157,10 +157,21 @@ export class Aggregator {
     const chatSpans = spans.filter(s => s.chatSessionId !== null && !isIgnoredAgent(s));
     const conversationToChat = buildConversationToChatMap(chatSpans);
 
+    // Build trace_id → real session ID map for resolving subagent spans.
+    // All spans in a turn share trace_id; parent spans have a real UUID chatSessionId.
+    const traceToSession = new Map<string, string>();
+    for (const span of chatSpans) {
+      if (span.chatSessionId && !isToolCallSessionId(span.chatSessionId)) {
+        if (!traceToSession.has(span.traceId)) {
+          traceToSession.set(span.traceId, span.chatSessionId);
+        }
+      }
+    }
+
     // Group spans by session
     const sessions = new Map<string, Span[]>();
     for (const span of chatSpans) {
-      const id = getCanonicalSessionId(span, conversationToChat);
+      const id = getCanonicalSessionId(span, conversationToChat, traceToSession);
       const existing = sessions.get(id) ?? [];
       existing.push(span);
       sessions.set(id, existing);
@@ -292,10 +303,24 @@ function matchesSession(span: Span, sessionId: string): boolean {
   return span.chatSessionId === sessionId || span.conversationId === sessionId;
 }
 
-function getCanonicalSessionId(span: Span, conversationToChat: Map<string, string>): string {
+function getCanonicalSessionId(span: Span, _conversationToChat: Map<string, string>, traceToSession: Map<string, string>): string {
+  // Subagent spans have chatSessionId set to a tool-call ID (e.g. "toolu_bdrk_...").
+  // Use trace_id to resolve back to the real parent session, since all spans in a
+  // turn share the same trace_id.
+  if (span.chatSessionId && isToolCallSessionId(span.chatSessionId)) {
+    const parentSession = traceToSession.get(span.traceId);
+    if (parentSession) return parentSession;
+    // Fallback: if no parent found via trace, use conversationId or chatSessionId
+    return span.conversationId ?? span.chatSessionId;
+  }
   if (span.chatSessionId) return span.chatSessionId;
-  if (span.conversationId) return conversationToChat.get(span.conversationId) ?? span.conversationId;
+  if (span.conversationId) return _conversationToChat.get(span.conversationId) ?? span.conversationId;
   return 'unknown';
+}
+
+/** Returns true if the session ID looks like a tool-call ID (subagent invocation). */
+function isToolCallSessionId(id: string): boolean {
+  return id.startsWith('toolu_');
 }
 
 function buildConversationToChatMap(spans: Span[]): Map<string, string> {

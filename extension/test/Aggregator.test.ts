@@ -8,6 +8,7 @@ function makeSpan(overrides: Partial<Span> = {}): Span {
   return {
     spanId: 'span-1',
     traceId: 'trace-1',
+    parentSpanId: null,
     operationName: 'chat',
     agentName: null,
     requestModel: null,
@@ -135,6 +136,97 @@ describe('Aggregator', () => {
         expect(typeof bucket.totalCost).toBe('number');
         expect(typeof bucket.requests).toBe('number');
       }
+    });
+
+    it('merges subagent spans into parent session', () => {
+      const now = Date.now();
+      const parentSessionId = 'b786a4c9-6af6-454f-94e4-5432f62d021e';
+      const toolCallId = 'toolu_bdrk_01P1yrDZPcbHw8mFrDwube52';
+      const sharedTraceId = '7276de1aba9403486de97d4a52d9e50b';
+
+      // Parent session spans (chatSessionId = real session, same traceId)
+      const parentSpan = makeSpan({
+        spanId: 'parent-1',
+        traceId: sharedTraceId,
+        parentSpanId: 'root-invoke-agent',
+        chatSessionId: parentSessionId,
+        conversationId: parentSessionId,
+        responseModel: 'claude-opus-4-6',
+        startTimeMs: now - 5000,
+        endTimeMs: now - 4000,
+      });
+
+      // Subagent spans (chatSessionId = tool call ID, same traceId as parent)
+      const subagentSpan1 = makeSpan({
+        spanId: 'sub-1',
+        traceId: sharedTraceId,
+        parentSpanId: 'invoke-agent-span-id',
+        chatSessionId: toolCallId,
+        conversationId: 'per-subagent-conv-id',
+        responseModel: 'claude-haiku-4-5-20251001',
+        agentName: 'tool/runSubagent-Explore',
+        startTimeMs: now - 3000,
+        endTimeMs: now - 2000,
+      });
+
+      const subagentSpan2 = makeSpan({
+        spanId: 'sub-2',
+        traceId: sharedTraceId,
+        parentSpanId: 'invoke-agent-span-id',
+        chatSessionId: toolCallId,
+        conversationId: 'per-subagent-conv-id',
+        responseModel: 'claude-haiku-4-5-20251001',
+        agentName: 'tool/runSubagent-Explore',
+        startTimeMs: now - 2000,
+        endTimeMs: now - 1000,
+      });
+
+      const spans = [parentSpan, subagentSpan1, subagentSpan2];
+      const titles = new Map([[parentSessionId, 'My Session']]);
+      const dashboard = aggregator.buildDashboard(spans, titles, parentSessionId);
+
+      // Should produce ONE session, not two
+      expect(dashboard.recentSessions).toHaveLength(1);
+      expect(dashboard.recentSessions[0].sessionId).toBe(parentSessionId);
+      expect(dashboard.recentSessions[0].title).toBe('My Session');
+      // All 3 spans should be in that single session
+      expect(dashboard.recentSessions[0].requests).toBe(3);
+    });
+
+    it('does not create separate session for subagent tool-call IDs', () => {
+      const now = Date.now();
+      const parentSessionId = 'real-session-uuid';
+      const toolCallId = 'toolu_bdrk_abc123';
+      const sharedTraceId = 'shared-trace-id';
+
+      const spans = [
+        // Parent span with real session ID (provides trace_id → session mapping)
+        makeSpan({
+          spanId: 'parent-1',
+          traceId: sharedTraceId,
+          parentSpanId: null,
+          chatSessionId: parentSessionId,
+          conversationId: parentSessionId,
+          startTimeMs: now - 2000,
+          endTimeMs: now - 1500,
+        }),
+        // Subagent span sharing same trace_id
+        makeSpan({
+          spanId: 'sub-only',
+          traceId: sharedTraceId,
+          parentSpanId: 'some-parent',
+          chatSessionId: toolCallId,
+          conversationId: 'subagent-conv-id',
+          startTimeMs: now - 1000,
+          endTimeMs: now - 500,
+        }),
+      ];
+
+      const dashboard = aggregator.buildDashboard(spans, new Map(), null);
+
+      // Should group under real session, not tool call ID
+      expect(dashboard.recentSessions).toHaveLength(1);
+      expect(dashboard.recentSessions[0].sessionId).toBe(parentSessionId);
     });
   });
 });

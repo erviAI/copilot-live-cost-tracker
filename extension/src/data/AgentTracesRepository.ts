@@ -10,6 +10,7 @@ const SPAN_SELECT_SQL = `
   SELECT
     s.span_id AS spanId,
     s.trace_id AS traceId,
+    s.parent_span_id AS parentSpanId,
     s.operation_name AS operationName,
     s.agent_name AS agentName,
     s.request_model AS requestModel,
@@ -70,7 +71,7 @@ export class AgentTracesRepository implements ISpanRepository {
       ORDER BY s.start_time_ms ASC
     `;
     const rows = await db.all<Span>(sql, [sessionId, sessionId]);
-    return rows.map(normalizeTimestamps);
+    return rows.map(normalizeTimestamps).filter(shouldIncludeChatSpan);
   }
 
   async getSpansSince(timestampMs: number): Promise<Span[]> {
@@ -84,7 +85,7 @@ export class AgentTracesRepository implements ISpanRepository {
     // stores microseconds. Normalization happens in JS below.
     const rawBound = Math.min(timestampMs, Math.floor(timestampMs / 1000));
     const rows = await db.all<Span>(sql, [rawBound]);
-    const normalized = rows.map(normalizeTimestamps);
+    const normalized = rows.map(normalizeTimestamps).filter(shouldIncludeChatSpan);
     // Final filter in ms-space after normalization.
     return normalized.filter(s => s.startTimeMs >= timestampMs);
   }
@@ -92,13 +93,26 @@ export class AgentTracesRepository implements ISpanRepository {
   async getRecentSessionSpans(limit: number): Promise<Map<string, Span[]>> {
     const db = await this.getDb();
 
-    // First get the most recent session IDs
+    // First get the most recent session IDs.
+    // Resolve subagent spans (chat_session_id LIKE 'toolu_%') to their parent session
+    // via trace_id: all spans in a turn share trace_id, and the parent session's spans
+    // have the real UUID as chat_session_id.
     const sessionsSql = `
-      SELECT DISTINCT COALESCE(chat_session_id, conversation_id) AS session_id,
-             MAX(start_time_ms) AS last_activity
-      FROM spans
-      WHERE operation_name = 'chat'
-      GROUP BY COALESCE(chat_session_id, conversation_id)
+      SELECT DISTINCT
+        COALESCE(
+          (SELECT s2.chat_session_id FROM spans s2
+           WHERE s2.trace_id = s.trace_id
+             AND s2.chat_session_id NOT LIKE 'toolu_%'
+             AND s2.operation_name = 'chat'
+           LIMIT 1),
+          s.chat_session_id,
+          s.conversation_id
+        ) AS session_id,
+        MAX(s.start_time_ms) AS last_activity
+      FROM spans s
+      WHERE s.operation_name = 'chat'
+      GROUP BY session_id
+      HAVING session_id IS NOT NULL
       ORDER BY last_activity DESC
       LIMIT ?
     `;
@@ -139,4 +153,22 @@ function normalizeTimestamps(span: Span): Span {
     };
   }
   return span;
+}
+
+/**
+ * Copilot may emit a terminal canceled `chat` span after a request aborts.
+ * Those rows have no response model and no token usage, but would otherwise
+ * inflate the UI with a zero-cost phantom call for the request model.
+ */
+export function shouldIncludeChatSpan(span: Span): boolean {
+  const statusMessage = span.statusMessage?.trim().toLowerCase() ?? '';
+  const isCanceled = statusMessage.startsWith('cancel');
+  const hasResponseModel = Boolean(span.responseModel);
+  const hasUsage =
+    span.inputTokens > 0 ||
+    span.outputTokens > 0 ||
+    span.cachedTokens > 0 ||
+    span.cacheWriteTokens > 0;
+
+  return !isCanceled || hasResponseModel || hasUsage;
 }

@@ -182,6 +182,15 @@ export class CostTrackingService implements vscode.Disposable {
     const oneHourAgo = Date.now() - 60 * 60 * 1000;
     if (latest.startTimeMs < oneHourAgo) return null;
 
+    // Subagent spans have chatSessionId set to a tool-call ID (e.g. "toolu_...").
+    // Resolve to the real parent session via trace_id correlation.
+    if (latest.chatSessionId && latest.chatSessionId.startsWith('toolu_')) {
+      // Find another span in the same trace with a real session ID
+      const parentSpan = candidates.find(
+        s => s.traceId === latest.traceId && s.chatSessionId && !s.chatSessionId.startsWith('toolu_')
+      );
+      if (parentSpan) return parentSpan.chatSessionId;
+    }
     return latest.chatSessionId ?? latest.conversationId ?? null;
   }
 
