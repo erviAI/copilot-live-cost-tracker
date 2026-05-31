@@ -178,7 +178,7 @@ export class CostHistoryService {
       title: s.title,
       workspace: s.workspace,
       totalCost: s.totalCost,
-      requests: s.requests,
+      modelTurns: s.modelTurns,
       inputTokens: s.inputTokens,
       outputTokens: s.outputTokens,
       cachedTokens: s.cachedTokens,
@@ -225,13 +225,13 @@ export class CostHistoryService {
       const existing = workspaceMap.get(ws);
       if (existing) {
         existing.totalCost += session.totalCost;
-        existing.requests += session.requests;
+        existing.modelTurns += session.modelTurns;
         existing.sessionCount += 1;
       } else {
         workspaceMap.set(ws, {
           workspace: ws,
           totalCost: session.totalCost,
-          requests: session.requests,
+          modelTurns: session.modelTurns,
           sessionCount: 1,
         });
       }
@@ -240,7 +240,7 @@ export class CostHistoryService {
     const aggregate: DailyAggregate = {
       date,
       totalCost: sessions.reduce((sum, s) => sum + s.totalCost, 0),
-      requests: sessions.reduce((sum, s) => sum + s.requests, 0),
+      modelTurns: sessions.reduce((sum, s) => sum + s.modelTurns, 0),
       inputTokens: sessions.reduce((sum, s) => sum + s.inputTokens, 0),
       outputTokens: sessions.reduce((sum, s) => sum + s.outputTokens, 0),
       cachedTokens: sessions.reduce((sum, s) => sum + s.cachedTokens, 0),

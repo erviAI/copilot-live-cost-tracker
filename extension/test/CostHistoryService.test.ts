@@ -6,7 +6,7 @@ import { CostHistoryService } from '../src/services/CostHistoryService.js';
 import type { DashboardData, SessionInfo, ModelCost } from '../src/domain/models.js';
 
 function makeDashboardData(overrides: Partial<DashboardData> = {}): DashboardData {
-  const emptyPeriod = { totalCost: 0, requests: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, byModel: [] };
+  const emptyPeriod = { totalCost: 0, modelTurns: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, byModel: [] };
   return {
     today: emptyPeriod,
     thisWeek: emptyPeriod,
@@ -29,7 +29,7 @@ function makeSessionInfo(overrides: Partial<SessionInfo> = {}): SessionInfo {
     startedAt: now - 3600_000,
     endedAt: now - 1800_000,
     totalCost: 0.50,
-    requests: 10,
+    modelTurns: 10,
     inputTokens: 50_000,
     outputTokens: 20_000,
     cachedTokens: 30_000,
@@ -140,7 +140,7 @@ describe('CostHistoryService', () => {
             title: 'Yesterday session',
             workspace: 'project-a',
             totalCost: 1.00,
-            requests: 20,
+            modelTurns: 20,
             inputTokens: 100_000,
             outputTokens: 40_000,
             cachedTokens: 60_000,
@@ -154,7 +154,7 @@ describe('CostHistoryService', () => {
             title: 'Yesterday session 2',
             workspace: 'project-b',
             totalCost: 0.50,
-            requests: 5,
+            modelTurns: 5,
             inputTokens: 20_000,
             outputTokens: 10_000,
             cachedTokens: 15_000,
@@ -177,7 +177,7 @@ describe('CostHistoryService', () => {
 
       expect(daily.date).toBe(yesterdayStr);
       expect(daily.totalCost).toBeCloseTo(1.50);
-      expect(daily.requests).toBe(25);
+      expect(daily.modelTurns).toBe(25);
       expect(daily.sessionCount).toBe(2);
       expect(daily.byModel).toHaveLength(2);
       expect(daily.byWorkspace).toHaveLength(2);
@@ -218,8 +218,8 @@ describe('CostHistoryService', () => {
       const dailyDir = path.join(tmpDir, 'cost-history', 'daily');
       await fs.mkdir(dailyDir, { recursive: true });
 
-      const day1 = { date: '2026-05-28', totalCost: 1.0, requests: 10, inputTokens: 50000, outputTokens: 20000, cachedTokens: 30000, cacheWriteTokens: 5000, byModel: [], byWorkspace: [], sessionCount: 2 };
-      const day2 = { date: '2026-05-29', totalCost: 2.0, requests: 20, inputTokens: 100000, outputTokens: 40000, cachedTokens: 60000, cacheWriteTokens: 10000, byModel: [], byWorkspace: [], sessionCount: 4 };
+      const day1 = { date: '2026-05-28', totalCost: 1.0, modelTurns: 10, inputTokens: 50000, outputTokens: 20000, cachedTokens: 30000, cacheWriteTokens: 5000, byModel: [], byWorkspace: [], sessionCount: 2 };
+      const day2 = { date: '2026-05-29', totalCost: 2.0, modelTurns: 20, inputTokens: 100000, outputTokens: 40000, cachedTokens: 60000, cacheWriteTokens: 10000, byModel: [], byWorkspace: [], sessionCount: 4 };
 
       await fs.writeFile(path.join(dailyDir, '2026-05-28.json'), JSON.stringify(day1));
       await fs.writeFile(path.join(dailyDir, '2026-05-29.json'), JSON.stringify(day2));

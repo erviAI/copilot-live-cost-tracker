@@ -175,7 +175,7 @@ export class Aggregator {
 
     return {
       totalCost,
-      requests: spans.length,
+      modelTurns: spans.length,
       inputTokens: totalInput,
       outputTokens: totalOutput,
       cachedTokens: totalCached,
@@ -204,7 +204,7 @@ export class Aggregator {
         date: formatDate(date),
         dayLabel: dayNames[date.getDay()],
         totalCost: period.totalCost,
-        requests: period.requests,
+        modelTurns: period.modelTurns,
       });
     }
 
@@ -258,7 +258,7 @@ export class Aggregator {
         startedAt,
         endedAt,
         totalCost: period.totalCost,
-        requests: period.requests,
+        modelTurns: period.modelTurns,
         inputTokens: period.inputTokens,
         outputTokens: period.outputTokens,
         cachedTokens: period.cachedTokens,
@@ -337,7 +337,7 @@ export class Aggregator {
           agentName: subSpans[0]?.agentName ?? null,
           model: subSpans[0]?.responseModel ?? subSpans[0]?.requestModel ?? null,
           startTimeMs: Math.min(...subSpans.map(s => s.startTimeMs)),
-          llmCalls: subPeriod.requests,
+          llmCalls: subPeriod.modelTurns,
           inputTokens: subPeriod.inputTokens,
           outputTokens: subPeriod.outputTokens,
           cachedTokens: subPeriod.cachedTokens,
@@ -375,7 +375,7 @@ export class Aggregator {
         agentName: parentSpans[0]?.agentName ?? turnSpans[0]?.agentName ?? null,
         model: parentSpans[0]?.responseModel ?? parentSpans[0]?.requestModel ?? turnSpans[0]?.responseModel ?? turnSpans[0]?.requestModel ?? null,
         startTimeMs: Math.min(...turnSpans.map(s => s.startTimeMs)),
-        llmCalls: period.requests,
+        llmCalls: period.modelTurns,
         inputTokens: period.inputTokens,
         outputTokens: period.outputTokens,
         cachedTokens: period.cachedTokens,
@@ -413,7 +413,7 @@ export class Aggregator {
       turns,
       byModel,
       totalCost: period.totalCost,
-      totalLlmCalls: period.requests,
+      totalLlmCalls: period.modelTurns,
     };
   }
 }

@@ -534,7 +534,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         bannerHtml = renderWarningBanner(data.dataSourceStatus.message, true);
       }
 
-      if (!data || (data.today.requests === 0 && data.thisWeek.requests === 0)) {
+      if (!data || (data.today.modelTurns === 0 && data.thisWeek.modelTurns === 0)) {
         content.innerHTML = bannerHtml + '<div class="empty-state">No Copilot usage data found yet.</div>';
         return;
       }
@@ -593,7 +593,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     function renderCostCard(period, level) {
       const colorClass = level === 'limit' ? 'cost-red' : level === 'warning' ? 'cost-yellow' : 'cost-green';
       return '<div class="cost-large ' + colorClass + '"' + costTitle(period.totalCost) + '>' + formatCost(period.totalCost) + '</div>' +
-        statRow('Requests', period.requests) +
+        statRow('Model Turns', period.modelTurns) +
         statRow('Input Tokens', formatTokens(period.inputTokens)) +
         statRow('Output Tokens', formatTokens(period.outputTokens)) +
         statRow('Cached Tokens', formatTokens(period.cachedTokens));
@@ -652,7 +652,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
     function renderWeekCard(period) {
       return '<div class="cost-large cost-green"' + costTitle(period.totalCost) + '>' + formatCost(period.totalCost) + '</div>' +
-        statRow('Requests', period.requests);
+        statRow('Model Turns', period.modelTurns);
     }
 
     function renderModelTable(models) {
@@ -671,7 +671,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       const useCost = totalCostSum > 0;
       const values = useCost
         ? costs
-        : days.map(d => (Number.isFinite(d.requests) ? d.requests : 0));
+        : days.map(d => (Number.isFinite(d.modelTurns) ? d.modelTurns : 0));
       const maxValue = Math.max.apply(null, values.concat([useCost ? 0.01 : 1]));
 
       // SVG for bars only (stretched to fill width), labels rendered as HTML below.
@@ -687,7 +687,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const h = Math.max(Math.min(safeRatio * chartH, chartH), 1);
         const x = i * (barW + gap);
         const y = chartH - h;
-        const tooltip = d.dayLabel + ': ' + formatCost(d.totalCost) + ' \u00b7 ' + d.requests + ' calls';
+        const tooltip = d.dayLabel + ': ' + formatCost(d.totalCost) + ' \u00b7 ' + d.modelTurns + ' turns';
         return '<rect class="chart-bar-rect" x="' + x + '" y="' + y +
           '" width="' + barW + '" height="' + h + '" rx="1.5">' +
           '<title>' + escapeHtml(tooltip) + '</title></rect>';
@@ -714,7 +714,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           '<div class="session-info"><div class="session-title">' +
           '<span class="chevron">&#9654;</span> ' + escapeHtml(s.title) + '</div><div class="session-meta">' +
           (s.workspace ? '<span class="session-repo">' + escapeHtml(s.workspace) + '</span> \\u00b7 ' : '') +
-          (s.model ? shortModel(s.model) + ' \\u00b7 ' : '') + s.requests + ' calls \\u00b7 ' + timeAgo(s.endedAt) +
+          (s.model ? shortModel(s.model) + ' \\u00b7 ' : '') + s.modelTurns + ' turns \\u00b7 ' + timeAgo(s.endedAt) +
           '</div></div><span class="session-cost"' + costTitle(s.totalCost) + '>' + formatCost(s.totalCost) + '</span></div>' +
           '<div class="session-detail" id="detail-' + escapeHtml(s.sessionId) + '"></div></li>'
         ).join('') + '</ul>';
@@ -834,8 +834,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       let html = '';
 
       // Per-model breakdown
-      html += '<div class="detail-section"><div class="detail-section-title">LLM Calls by Model (' + data.totalLlmCalls + ' total)</div>';
-      html += '<table class="detail-table"><tr><th>Model</th><th class="num">Calls</th><th class="num">Cost</th><th class="num">In</th><th class="num">Out</th><th class="num">Cache R</th><th class="num">Cache W</th><th class="num">Hit%</th><th class="num">tok/s</th></tr>';
+      html += '<div class="detail-section"><div class="detail-section-title">LLM Turns by Model (' + data.totalLlmCalls + ' total)</div>';
+      html += '<table class="detail-table"><tr><th>Model</th><th class="num">Turns</th><th class="num">Cost</th><th class="num">In</th><th class="num">Out</th><th class="num">Cache R</th><th class="num">Cache W</th><th class="num">Hit%</th><th class="num">tok/s</th></tr>';
       data.byModel.forEach(function(m) {
         html += '<tr><td>' + shortModel(m.model) + '</td>' +
           '<td class="num">' + m.calls + '</td>' +
@@ -855,7 +855,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         var turnsOpen = !!turnsExpandedSessions[sessionId];
         html += '<div class="detail-section"><div class="detail-section-title turns-section-title" data-wrapper="' + turnsWrapperId + '"><span class="section-chevron' + (turnsOpen ? ' open' : '') + '">&#9654;</span> Cost per Turn (' + data.turns.length + ' turns)</div>';
         html += '<div id="' + turnsWrapperId + '" class="' + (turnsOpen ? '' : 'hidden') + '"><table class="detail-table">';
-        html += '<tr><th>Trace</th><th class="num">Calls</th><th class="num">Cost</th><th class="num">In</th><th class="num">Out</th><th class="num">Cache R</th><th class="num">Cache W</th></tr>';
+        html += '<tr><th>Trace</th><th class="num">Turns</th><th class="num">Cost</th><th class="num">In</th><th class="num">Out</th><th class="num">Cache R</th><th class="num">Cache W</th></tr>';
         data.turns.forEach(function(t, idx) {
           var turnId = 'turn-spans-' + idx;
           var traceLabel = t.traceId ? t.traceId.slice(0, 8) : ('T' + t.turnIndex);
@@ -872,7 +872,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
             'Duration: ' + formatDuration(t.durationMs),
             'Tokens: ' + formatTokens(totalTokens) + ' (in ' + formatTokens(t.inputTokens) + ' / out ' + formatTokens(t.outputTokens) + ' / cache ' + formatTokens(t.cachedTokens) + ')',
             'Cost: ' + formatCost(t.totalCost),
-            'Calls: ' + t.llmCalls
+            'Turns: ' + t.llmCalls
           ].filter(Boolean);
           var tipHtml = tipLines.map(function(l) { return '<div>' + escapeHtml(l) + '</div>'; }).join('');
           html += '<tr class="turn-row has-tip" data-turn-id="' + turnId + '">' +
@@ -919,7 +919,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
                 child.agentName ? 'Agent: ' + child.agentName : '',
                 child.model ? 'Model: ' + shortModel(child.model) : '',
                 'Duration: ' + formatDuration(child.durationMs),
-                'Calls: ' + child.llmCalls,
+                'Turns: ' + child.llmCalls,
                 'Cost: ' + formatCost(child.totalCost)
               ].filter(Boolean);
               var childTipHtml = childTipLines.map(function(l) { return '<div>' + escapeHtml(l) + '</div>'; }).join('');
