@@ -893,6 +893,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
                 sp.agentName ? 'Agent: ' + sp.agentName : '',
                 'Model: ' + sp.model,
                 'Trace: ' + (sp.traceId || ''),
+                'Span: ' + (sp.spanId || ''),
                 'Duration: ' + formatDuration(sp.durationMs),
                 'Tokens: ' + formatTokens(spTotal) + ' (in ' + formatTokens(sp.inputTokens) + ' / out ' + formatTokens(sp.outputTokens) + ' / cache ' + formatTokens(sp.cachedTokens) + ')',
                 'Cost: ' + formatCost(sp.totalCost)
@@ -935,8 +936,19 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
               if (child.spans && child.spans.length > 0) {
                 child.spans.forEach(function(csp, cspIdx) {
                   var cspAgent = csp.agentName ? '<span class="turn-agent">' + escapeHtml(csp.agentName) + '</span> ' : '';
-                  html += '<tr class="span-row subagent-span-row" data-parent="' + childId + '">' +
-                    '<td style="padding-left:2.4em">' + cspAgent + shortModel(csp.model) + '</td>' +
+                  var cspTotal = (csp.inputTokens || 0) + (csp.outputTokens || 0) + (csp.cachedTokens || 0);
+                  var cspTipLines = [
+                    csp.agentName ? 'Agent: ' + csp.agentName : '',
+                    'Model: ' + csp.model,
+                    'Trace: ' + (csp.traceId || ''),
+                    'Span: ' + (csp.spanId || ''),
+                    'Duration: ' + formatDuration(csp.durationMs),
+                    'Tokens: ' + formatTokens(cspTotal) + ' (in ' + formatTokens(csp.inputTokens) + ' / out ' + formatTokens(csp.outputTokens) + ' / cache ' + formatTokens(csp.cachedTokens) + ')',
+                    'Cost: ' + formatCost(csp.totalCost)
+                  ].filter(Boolean);
+                  var cspTipHtml = cspTipLines.map(function(l) { return '<div>' + escapeHtml(l) + '</div>'; }).join('');
+                  html += '<tr class="span-row subagent-span-row has-tip" data-parent="' + childId + '">' +
+                    '<td style="padding-left:2.4em">' + cspAgent + shortModel(csp.model) + '<span class="tip">' + cspTipHtml + '</span></td>' +
                     '<td class="num">' + (cspIdx + 1) + '</td>' +
                     '<td class="num">' + formatCost(csp.totalCost) + '</td>' +
                     '<td class="num">' + formatTokens(csp.inputTokens) + '</td>' +

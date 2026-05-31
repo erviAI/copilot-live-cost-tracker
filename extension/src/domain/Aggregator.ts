@@ -300,7 +300,7 @@ export class Aggregator {
           const model = s.responseModel ?? s.requestModel ?? 'unknown';
           const cost = this.calculator.calculate(model, s.inputTokens, s.outputTokens, s.cachedTokens, s.cacheWriteTokens);
           return {
-            traceId: s.traceId, agentName: s.agentName, model,
+            spanId: s.spanId, traceId: s.traceId, agentName: s.agentName, model,
             inputTokens: s.inputTokens, outputTokens: s.outputTokens,
             cachedTokens: s.cachedTokens, cacheWriteTokens: s.cacheWriteTokens,
             totalCost: cost?.totalCost ?? 0, durationMs: s.endTimeMs - s.startTimeMs,
@@ -334,7 +334,7 @@ export class Aggregator {
         const model = s.responseModel ?? s.requestModel ?? 'unknown';
         const cost = this.calculator.calculate(model, s.inputTokens, s.outputTokens, s.cachedTokens, s.cacheWriteTokens);
         return {
-          traceId: s.traceId, agentName: s.agentName, model,
+          spanId: s.spanId, traceId: s.traceId, agentName: s.agentName, model,
           inputTokens: s.inputTokens, outputTokens: s.outputTokens,
           cachedTokens: s.cachedTokens, cacheWriteTokens: s.cacheWriteTokens,
           totalCost: cost?.totalCost ?? 0, durationMs: s.endTimeMs - s.startTimeMs,

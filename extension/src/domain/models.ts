@@ -121,6 +121,7 @@ export interface BudgetState {
 
 /** Individual span detail within a turn */
 export interface SpanDetail {
+  spanId: string;
   traceId: string;
   agentName: string | null;
   model: string;
