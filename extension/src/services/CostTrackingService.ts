@@ -222,7 +222,7 @@ export class CostTrackingService implements vscode.Disposable {
   }
 
   private emptyDashboard(dataSourceStatus?: DataSourceStatus): DashboardData {
-    const emptyPeriod = { totalCost: 0, requests: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, byModel: [] };
+    const emptyPeriod = { totalCost: 0, requests: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, byModel: [], byWorkspace: [] };
     return {
       today: emptyPeriod,
       thisWeek: emptyPeriod,

@@ -51,6 +51,7 @@ export interface PeriodCost {
   outputTokens: number;
   cachedTokens: number;
   byModel: ModelCost[];
+  byWorkspace: WorkspaceCost[];
 }
 
 /** Session summary for the recent sessions list */
@@ -120,6 +121,7 @@ export interface BudgetState {
 
 /** Individual span detail within a turn */
 export interface SpanDetail {
+  spanId: string;
   traceId: string;
   agentName: string | null;
   model: string;
