@@ -24,9 +24,33 @@ export class Aggregator {
 
     const todaySpans = allSpans.filter(s => s.startTimeMs >= todayStart);
     const weekSpans = allSpans.filter(s => s.startTimeMs >= weekStart);
-    const sessionSpans = currentSessionId
-      ? allSpans.filter(s => matchesSession(s, currentSessionId))
-      : [];
+
+    let sessionSpans: Span[];
+    if (!currentSessionId) {
+      sessionSpans = [];
+    } else {
+      // First pass: collect direct matches and traceIds that belong to this session
+      const directMatches: Span[] = [];
+      const sessionTraceIds = new Set<string>();
+      const pendingSubagent: Span[] = [];
+
+      for (const span of allSpans) {
+        if (matchesSession(span, currentSessionId)) {
+          directMatches.push(span);
+          sessionTraceIds.add(span.traceId);
+        } else if (span.chatSessionId && isToolCallSessionId(span.chatSessionId)) {
+          pendingSubagent.push(span);
+        }
+      }
+
+      // Second pass: include sub-agent spans whose traceId belongs to this session
+      sessionSpans = directMatches;
+      for (const span of pendingSubagent) {
+        if (sessionTraceIds.has(span.traceId)) {
+          sessionSpans.push(span);
+        }
+      }
+    }
 
     let latestSpanTimeMs: number | null = null;
     let agentName: string | null = null;

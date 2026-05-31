@@ -326,5 +326,55 @@ describe('Aggregator', () => {
       expect(dashboard.today.byWorkspace).toEqual([]);
       expect(dashboard.thisWeek.byWorkspace).toEqual([]);
     });
+
+    it('includes sub-agent spans in currentSession via traceId resolution', () => {
+      const now = Date.now();
+      const parentSessionId = 'f58cf158-1234-5678-9abc-def012345678';
+      const toolCallId = 'toolu_bdrk_01ABC123XYZ';
+      const sharedTraceId = 'trace-turn-1';
+
+      const spans = [
+        // Parent span with real session UUID
+        makeSpan({
+          spanId: 'parent-1',
+          traceId: sharedTraceId,
+          chatSessionId: parentSessionId,
+          conversationId: parentSessionId,
+          responseModel: 'claude-opus-4-6',
+          startTimeMs: now - 5000,
+          endTimeMs: now - 4000,
+        }),
+        // Sub-agent spans with tool-call chatSessionId but same traceId
+        makeSpan({
+          spanId: 'sub-1',
+          traceId: sharedTraceId,
+          chatSessionId: toolCallId,
+          conversationId: 'sub-conv',
+          responseModel: 'claude-haiku-4-5',
+          agentName: 'tool/runSubagent-Explore',
+          startTimeMs: now - 3000,
+          endTimeMs: now - 2500,
+        }),
+        makeSpan({
+          spanId: 'sub-2',
+          traceId: sharedTraceId,
+          chatSessionId: toolCallId,
+          conversationId: 'sub-conv',
+          responseModel: 'claude-haiku-4-5',
+          agentName: 'tool/runSubagent-Explore',
+          startTimeMs: now - 2000,
+          endTimeMs: now - 1500,
+        }),
+      ];
+
+      const titles = new Map([[parentSessionId, 'Get span id on hover']]);
+      const dashboard = aggregator.buildDashboard(spans, titles, parentSessionId);
+
+      // All 3 spans (1 parent + 2 sub-agent) should be in currentSession
+      expect(dashboard.currentSession.requests).toBe(3);
+      expect(dashboard.currentSession.spanCount).toBe(3);
+      expect(dashboard.currentSession.sessionId).toBe(parentSessionId);
+      expect(dashboard.currentSession.byModel).toHaveLength(2);
+    });
   });
 });
