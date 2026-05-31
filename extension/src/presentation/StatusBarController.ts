@@ -78,9 +78,9 @@ export class StatusBarController implements vscode.Disposable {
     const lines = [
       `Copilot Cost Tracker`,
       `──────────────────`,
-      `Session: ${formatCost(data.currentSession.totalCost)}${converted(data.currentSession.totalCost)} (${data.currentSession.requests} requests)`,
-      `Today:   ${formatCost(data.today.totalCost)}${converted(data.today.totalCost)} (${data.today.requests} requests)`,
-      `Week:    ${formatCost(data.thisWeek.totalCost)}${converted(data.thisWeek.totalCost)} (${data.thisWeek.requests} requests)`,
+      `Session: ${formatCost(data.currentSession.totalCost)}${converted(data.currentSession.totalCost)} (${data.currentSession.modelTurns} model turns)`,
+      `Today:   ${formatCost(data.today.totalCost)}${converted(data.today.totalCost)} (${data.today.modelTurns} model turns)`,
+      `Week:    ${formatCost(data.thisWeek.totalCost)}${converted(data.thisWeek.totalCost)} (${data.thisWeek.modelTurns} model turns)`,
       ``,
       `Tokens today: ${formatTokens(data.today.inputTokens)} in / ${formatTokens(data.today.outputTokens)} out / ${formatTokens(data.today.cachedTokens)} cached`,
       ``,

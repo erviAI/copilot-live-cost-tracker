@@ -41,7 +41,7 @@ describe('Aggregator', () => {
       const span = makeSpan();
       const result = aggregator.aggregatePeriod([span]);
 
-      expect(result.requests).toBe(1);
+      expect(result.modelTurns).toBe(1);
       expect(result.inputTokens).toBe(10_000);
       expect(result.outputTokens).toBe(1_000);
       expect(result.cachedTokens).toBe(5_000);
@@ -59,7 +59,7 @@ describe('Aggregator', () => {
 
       const result = aggregator.aggregatePeriod(spans);
 
-      expect(result.requests).toBe(3);
+      expect(result.modelTurns).toBe(3);
       expect(result.byModel).toHaveLength(2);
       // Should be sorted by cost descending
       const modelNames = result.byModel.map(m => m.model);
@@ -73,7 +73,7 @@ describe('Aggregator', () => {
 
     it('returns zero cost for empty spans', () => {
       const result = aggregator.aggregatePeriod([]);
-      expect(result.requests).toBe(0);
+      expect(result.modelTurns).toBe(0);
       expect(result.totalCost).toBe(0);
       expect(result.byModel).toHaveLength(0);
     });
@@ -90,9 +90,9 @@ describe('Aggregator', () => {
       const titles = new Map([['session-1', 'Test Session']]);
       const dashboard = aggregator.buildDashboard(spans, titles, 'session-1');
 
-      expect(dashboard.today.requests).toBe(2);
-      expect(dashboard.thisWeek.requests).toBe(2);
-      expect(dashboard.currentSession.requests).toBe(2);
+      expect(dashboard.today.modelTurns).toBe(2);
+      expect(dashboard.thisWeek.modelTurns).toBe(2);
+      expect(dashboard.currentSession.modelTurns).toBe(2);
       expect(dashboard.currentSession.sessionId).toBe('session-1');
       expect(dashboard.last7Days).toHaveLength(7);
       expect(dashboard.recentSessions).toHaveLength(1);
@@ -113,15 +113,15 @@ describe('Aggregator', () => {
       const dashboard = aggregator.buildDashboard(spans, new Map(), null);
 
       // Today should have 1, this week should also have 1 (8 days ago is outside the week)
-      expect(dashboard.today.requests).toBe(1);
-      expect(dashboard.thisWeek.requests).toBe(1);
+      expect(dashboard.today.modelTurns).toBe(1);
+      expect(dashboard.thisWeek.modelTurns).toBe(1);
     });
 
     it('handles null currentSessionId', () => {
       const spans = [makeSpan()];
       const dashboard = aggregator.buildDashboard(spans, new Map(), null);
 
-      expect(dashboard.currentSession.requests).toBe(0);
+      expect(dashboard.currentSession.modelTurns).toBe(0);
       expect(dashboard.currentSession.sessionId).toBeNull();
     });
 
@@ -134,7 +134,7 @@ describe('Aggregator', () => {
         expect(bucket.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
         expect(bucket.dayLabel).toMatch(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)$/);
         expect(typeof bucket.totalCost).toBe('number');
-        expect(typeof bucket.requests).toBe('number');
+        expect(typeof bucket.modelTurns).toBe('number');
       }
     });
 
@@ -190,7 +190,7 @@ describe('Aggregator', () => {
       expect(dashboard.recentSessions[0].sessionId).toBe(parentSessionId);
       expect(dashboard.recentSessions[0].title).toBe('My Session');
       // All 3 spans should be in that single session
-      expect(dashboard.recentSessions[0].requests).toBe(3);
+      expect(dashboard.recentSessions[0].modelTurns).toBe(3);
     });
 
     it('does not create separate session for subagent tool-call IDs (toolu_ prefix)', () => {
@@ -271,7 +271,7 @@ describe('Aggregator', () => {
 
       expect(dashboard.recentSessions).toHaveLength(1);
       expect(dashboard.recentSessions[0].sessionId).toBe(parentSessionId);
-      expect(dashboard.recentSessions[0].requests).toBe(3);
+      expect(dashboard.recentSessions[0].modelTurns).toBe(3);
     });
   });
 });

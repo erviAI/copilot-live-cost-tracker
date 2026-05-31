@@ -2,7 +2,7 @@
   "name": "copilot-cost-tracker",
   "displayName": "GitHub Copilot Cost Tracker",
   "description": "Track GitHub Copilot token usage and costs in real-time with a sidebar dashboard and status bar.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "publisher": "ervi",
   "license": "MIT",
   "repository": {

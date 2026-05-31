@@ -43,14 +43,14 @@ async function main() {
 
   console.log('\n=== TODAY ===');
   console.log(`  Cost:     $${dashboard.today.totalCost.toFixed(4)}`);
-  console.log(`  Requests: ${dashboard.today.requests}`);
+  console.log(`  Model Turns: ${dashboard.today.modelTurns}`);
   console.log(`  Input:    ${(dashboard.today.inputTokens / 1000).toFixed(1)}K tokens`);
   console.log(`  Output:   ${(dashboard.today.outputTokens / 1000).toFixed(1)}K tokens`);
   console.log(`  Cached:   ${(dashboard.today.cachedTokens / 1000).toFixed(1)}K tokens`);
 
   console.log('\n=== THIS WEEK ===');
   console.log(`  Cost:     $${dashboard.thisWeek.totalCost.toFixed(4)}`);
-  console.log(`  Requests: ${dashboard.thisWeek.requests}`);
+  console.log(`  Model Turns: ${dashboard.thisWeek.modelTurns}`);
 
   console.log('\n=== TODAY BY MODEL ===');
   for (const m of dashboard.today.byModel) {

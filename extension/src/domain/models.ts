@@ -46,7 +46,7 @@ export interface ModelCost {
 /** Aggregated cost data for a time period */
 export interface PeriodCost {
   totalCost: number;
-  requests: number;
+  modelTurns: number;
   inputTokens: number;
   outputTokens: number;
   cachedTokens: number;
@@ -63,7 +63,7 @@ export interface SessionInfo {
   startedAt: number;
   endedAt: number;
   totalCost: number;
-  requests: number;
+  modelTurns: number;
   inputTokens: number;
   outputTokens: number;
   cachedTokens: number;
@@ -76,7 +76,7 @@ export interface DailyBucket {
   date: string; // YYYY-MM-DD
   dayLabel: string; // e.g. "Mon", "Tue"
   totalCost: number;
-  requests: number;
+  modelTurns: number;
 }
 
 /** Status of the cost data source */
@@ -192,7 +192,7 @@ export interface ModelCostSnapshot {
 export interface WorkspaceCost {
   workspace: string;
   totalCost: number;
-  requests: number;
+  modelTurns: number;
   sessionCount: number;
 }
 
@@ -202,7 +202,7 @@ export interface SessionSnapshot {
   title: string | null;
   workspace: string | null;
   totalCost: number;
-  requests: number;
+  modelTurns: number;
   inputTokens: number;
   outputTokens: number;
   cachedTokens: number;
@@ -223,7 +223,7 @@ export interface CurrentDayData {
 export interface DailyAggregate {
   date: string; // YYYY-MM-DD
   totalCost: number;
-  requests: number;
+  modelTurns: number;
   inputTokens: number;
   outputTokens: number;
   cachedTokens: number;
