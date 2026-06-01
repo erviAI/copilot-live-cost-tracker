@@ -73,7 +73,7 @@ export class StatusBarController implements vscode.Disposable {
   private buildTooltip(data: DashboardData, state: BudgetState): string {
     const currency = getDisplayCurrency();
     const converted = (cost: number) =>
-      currency ? ` (~${(cost * currency.rate).toFixed(2)} ${currency.code})` : '';
+      currency ? ` (~${(cost * currency.rate).toFixed(3)} ${currency.code})` : '';
 
     const lines = [
       `Copilot Cost Tracker`,
@@ -100,8 +100,8 @@ export class StatusBarController implements vscode.Disposable {
 }
 
 function formatCost(cost: number): string {
-  if (cost < 0.01 && cost > 0) return '< $0.01';
-  return `$${cost.toFixed(2)}`;
+  if (cost < 0.001 && cost > 0) return '< $0.001';
+  return `$${cost.toFixed(3)}`;
 }
 
 function formatTokens(count: number): string {

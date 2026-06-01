@@ -40,8 +40,16 @@ export class CostCalculator {
     cachedTokens: number,
     cacheWriteTokens: number
   ): CostBreakdown {
+    // Anthropic models bill input as either cache reads or cache writes — the
+    // raw "input" rate is never charged on its own. We detect Anthropic-style
+    // pricing by the presence of a cacheWrite rate and zero out fresh input
+    // cost so it neither shows in the breakdown nor contributes to the total.
+    const isCacheOnlyInput = pricing.cacheWrite !== undefined;
+
     const freshInputTokens = Math.max(0, inputTokens - cachedTokens);
-    const freshInputCost = (freshInputTokens / 1_000_000) * pricing.input;
+    const freshInputCost = isCacheOnlyInput
+      ? 0
+      : (freshInputTokens / 1_000_000) * pricing.input;
     const cacheReadCost = (cachedTokens / 1_000_000) * pricing.cached;
     const cacheWriteCost = pricing.cacheWrite
       ? (cacheWriteTokens / 1_000_000) * pricing.cacheWrite

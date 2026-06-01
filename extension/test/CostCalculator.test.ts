@@ -9,6 +9,8 @@ describe('CostCalculator', () => {
   describe('calculate', () => {
     it('calculates cost for Anthropic model with all token types', () => {
       // Claude Opus 4.5: input=$5, output=$25, cached=$0.50, cacheWrite=$6.25
+      // Anthropic bills input only via cache reads + cache writes — fresh
+      // input cost is excluded from the breakdown and the total.
       const result = calculator.calculate(
         'claude-opus-4-5',
         100_000, // input tokens (includes cached)
@@ -20,16 +22,16 @@ describe('CostCalculator', () => {
       expect(result).not.toBeNull();
       const r = result!;
 
-      // Fresh input: (100k - 60k) = 40k tokens × $5/1M = $0.20
-      expect(r.freshInputCost).toBeCloseTo(0.20, 4);
+      // Fresh input excluded for Anthropic (cache-only billing)
+      expect(r.freshInputCost).toBe(0);
       // Cache read: 60k × $0.50/1M = $0.03
       expect(r.cacheReadCost).toBeCloseTo(0.03, 4);
       // Cache write: 20k × $6.25/1M = $0.125
       expect(r.cacheWriteCost).toBeCloseTo(0.125, 4);
       // Output: 10k × $25/1M = $0.25
       expect(r.outputCost).toBeCloseTo(0.25, 4);
-      // Total: 0.20 + 0.03 + 0.125 + 0.25 = $0.605
-      expect(r.totalCost).toBeCloseTo(0.605, 4);
+      // Total: 0 + 0.03 + 0.125 + 0.25 = $0.405
+      expect(r.totalCost).toBeCloseTo(0.405, 4);
     });
 
     it('calculates cost for OpenAI model (no cache write)', () => {
@@ -76,16 +78,23 @@ describe('CostCalculator', () => {
     });
 
     it('handles large token counts (1M+) correctly', () => {
-      // 1M input tokens on Claude Opus 4.5 = exactly $5.00 fresh input
+      // 1M input tokens on Claude Opus 4.5 — Anthropic excludes fresh input
+      // cost, so total is $0 when there are no cache reads/writes or output.
       const result = calculator.calculate('claude-opus-4-5', 1_000_000, 0, 0, 0);
       expect(result).not.toBeNull();
-      expect(result!.freshInputCost).toBeCloseTo(5.00, 4);
-      expect(result!.totalCost).toBeCloseTo(5.00, 4);
+      expect(result!.freshInputCost).toBe(0);
+      expect(result!.totalCost).toBe(0);
+
+      // OpenAI still bills fresh input at full rate.
+      const openai = calculator.calculate('gpt-4.1', 1_000_000, 0, 0, 0);
+      expect(openai).not.toBeNull();
+      expect(openai!.freshInputCost).toBeCloseTo(2.00, 4);
+      expect(openai!.totalCost).toBeCloseTo(2.00, 4);
     });
   });
 
   describe('calculateWithRates', () => {
-    it('uses explicit rates correctly', () => {
+    it('uses explicit rates correctly (cache-only input when cacheWrite present)', () => {
       const result = calculator.calculateWithRates(
         { input: 10.00, output: 20.00, cached: 1.00, cacheWrite: 5.00 },
         100_000,
@@ -94,16 +103,32 @@ describe('CostCalculator', () => {
         10_000
       );
 
-      // Fresh: (100k-40k)=60k × $10/1M = $0.60
-      expect(result.freshInputCost).toBeCloseTo(0.60, 4);
+      // cacheWrite present → Anthropic-style billing; fresh input excluded.
+      expect(result.freshInputCost).toBe(0);
       // Cache read: 40k × $1/1M = $0.04
       expect(result.cacheReadCost).toBeCloseTo(0.04, 4);
       // Cache write: 10k × $5/1M = $0.05
       expect(result.cacheWriteCost).toBeCloseTo(0.05, 4);
       // Output: 50k × $20/1M = $1.00
       expect(result.outputCost).toBeCloseTo(1.00, 4);
-      // Total: 0.60 + 0.04 + 0.05 + 1.00 = $1.69
-      expect(result.totalCost).toBeCloseTo(1.69, 4);
+      // Total: 0 + 0.04 + 0.05 + 1.00 = $1.09
+      expect(result.totalCost).toBeCloseTo(1.09, 4);
+    });
+
+    it('charges fresh input when cacheWrite is not defined (non-Anthropic)', () => {
+      const result = calculator.calculateWithRates(
+        { input: 10.00, output: 20.00, cached: 1.00 },
+        100_000,
+        50_000,
+        40_000,
+        0
+      );
+
+      // Fresh: (100k-40k)=60k × $10/1M = $0.60
+      expect(result.freshInputCost).toBeCloseTo(0.60, 4);
+      expect(result.cacheWriteCost).toBe(0);
+      // Total: 0.60 + 0.04 + 0 + 1.00 = $1.64
+      expect(result.totalCost).toBeCloseTo(1.64, 4);
     });
   });
 });

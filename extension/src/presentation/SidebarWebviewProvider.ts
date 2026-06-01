@@ -994,13 +994,13 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     function formatCost(cost) {
-      if (cost < 0.01 && cost > 0) return '< $0.01';
-      return '$' + cost.toFixed(2);
+      if (cost < 0.001 && cost > 0) return '< $0.001';
+      return '$' + cost.toFixed(3);
     }
 
     function costTitle(cost) {
       if (!displayCurrency) return '';
-      return ' title="~' + (cost * displayCurrency.rate).toFixed(2) + ' ' + displayCurrency.code + '"';
+      return ' title="~' + (cost * displayCurrency.rate).toFixed(3) + ' ' + displayCurrency.code + '"';
     }
 
     function formatTokens(count) {

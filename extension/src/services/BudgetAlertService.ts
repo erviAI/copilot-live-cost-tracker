@@ -86,7 +86,7 @@ export class BudgetAlertService implements vscode.Disposable {
     if (this.firedAlerts.has(alertKey)) return;
     this.firedAlerts.add(alertKey);
 
-    const costStr = `$${cost.toFixed(2)}`;
+    const costStr = `$${cost.toFixed(3)}`;
     const scopeLabel = scope.charAt(0).toUpperCase() + scope.slice(1);
 
     if (level === 'warning') {
