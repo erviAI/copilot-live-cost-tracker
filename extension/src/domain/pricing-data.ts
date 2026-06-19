@@ -9,10 +9,7 @@ import type { ModelPricing } from './models.js';
  */
 export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   // OpenAI
-  'gpt-4.1': { input: 2.00, output: 8.00, cached: 0.50 },
   'gpt-5-mini': { input: 0.25, output: 2.00, cached: 0.025 },
-  'gpt-5.2': { input: 1.75, output: 14.00, cached: 0.175 },
-  'gpt-5.2-codex': { input: 1.75, output: 14.00, cached: 0.175 },
   'gpt-5.3-codex': { input: 1.75, output: 14.00, cached: 0.175 },
   'gpt-5.4': { input: 2.50, output: 15.00, cached: 0.25 },
   'gpt-5.4-mini': { input: 0.75, output: 4.50, cached: 0.075 },
@@ -27,6 +24,8 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'claude-opus-4-5': { input: 5.00, output: 25.00, cached: 0.50, cacheWrite: 6.25 },
   'claude-opus-4-6': { input: 5.00, output: 25.00, cached: 0.50, cacheWrite: 6.25 },
   'claude-opus-4-7': { input: 5.00, output: 25.00, cached: 0.50, cacheWrite: 6.25 },
+  'claude-opus-4-8': { input: 5.00, output: 25.00, cached: 0.50, cacheWrite: 6.25 },
+  'claude-fable-5': { input: 10.00, output: 50.00, cached: 1.00, cacheWrite: 12.50 },
 
   // Google
   'gemini-2.5-pro': { input: 1.25, output: 10.00, cached: 0.125 },
@@ -37,6 +36,9 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   // GitHub fine-tuned
   'raptor-mini': { input: 0.25, output: 2.00, cached: 0.025 },
 
+  // microsoft
+  'mai-code-1-flash': { input: 0.75, output: 4.50, cached: 0.075 },
+
   // Additional models not in the official pricing table (see extra-models.json)
   'gpt-4o-mini': { input: 0.15, output: 0.60, cached: 0.075 },
   'gpt-4o': { input: 2.50, output: 10.00, cached: 1.25 },
@@ -44,4 +46,9 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'o1-mini': { input: 3.00, output: 12.00, cached: 1.50 },
   'o3-mini': { input: 1.10, output: 4.40, cached: 0.55 },
   'goldeneye': { input: 1.25, output: 10.00, cached: 0.125 },
+
+  // Deprecated models retained for historical telemetry (see extra-models.json)
+  'gpt-4.1': { input: 2.00, output: 8.00, cached: 0.50 },
+  'gpt-5.2': { input: 1.75, output: 14.00, cached: 0.175 },
+  'gpt-5.2-codex': { input: 1.75, output: 14.00, cached: 0.175 },
 };
