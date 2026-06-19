@@ -1,5 +1,5 @@
 {
-  "_comment": "Models that are NOT present in GitHub's published pricing table (data/tables/copilot/models-and-pricing.yml) but that still appear in telemetry and need pricing. These are merged after the generated entries. Keys follow the same convention as the generated keys. Rates are per 1M tokens (USD). Anthropic-style models may include a cacheWrite rate.",
+  "_comment": "Models that are NOT present in GitHub's published pricing table (data/tables/copilot/models-and-pricing.yml) but that still appear in telemetry and need pricing. These are merged after the generated entries. Keys follow the same convention as the generated keys. Rates are per 1M tokens (USD). Anthropic-style models may include a cacheWrite rate. Add \"deprecated\": true to a model that has been retired/removed from the published table — it is still emitted (so old telemetry resolves to its last known rates) but grouped under a separate \"Deprecated models\" comment in the generated file.",
   "models": {
     "gpt-4o-mini": { "input": 0.15, "output": 0.6, "cached": 0.075 },
     "gpt-4o": { "input": 2.5, "output": 10.0, "cached": 1.25 },

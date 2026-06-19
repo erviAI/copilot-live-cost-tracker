@@ -107,6 +107,55 @@ function renderEntry(key, fields) {
   return `  '${key}': { ${parts.join(', ')} },`;
 }
 
+/**
+ * Parse a previously generated pricing-data.ts into a Map of key -> numeric
+ * rates. Used to capture the last-known rates of a model at the moment it is
+ * dropped from the published table, so it can be migrated into extra-models.json.
+ * @param {string} content
+ * @returns {Map<string, { input: number, output: number, cached: number, cacheWrite?: number }>}
+ */
+function parseGeneratedPricing(content) {
+  /** @type {Map<string, any>} */
+  const map = new Map();
+  if (!content) return map;
+  const lineRe = /^\s*'([^']+)':\s*\{\s*(.+?)\s*\},?\s*$/;
+  for (const line of content.split(/\r?\n/)) {
+    const m = lineRe.exec(line);
+    if (!m) continue;
+    /** @type {Record<string, number>} */
+    const fields = {};
+    for (const pair of m[2].split(',')) {
+      const [name, value] = pair.split(':').map((s) => s.trim());
+      if (name && value !== undefined && !Number.isNaN(Number(value))) {
+        fields[name] = Number(value);
+      }
+    }
+    if (fields.input !== undefined && fields.output !== undefined && fields.cached !== undefined) {
+      map.set(m[1], fields);
+    }
+  }
+  return map;
+}
+
+/**
+ * Serialize the extras object back to extra-models.json, preserving the
+ * compact one-line-per-model style (each model object on a single line).
+ * @param {{ _comment?: string, models: Record<string, any> }} extrasObj
+ */
+function serializeExtras(extrasObj) {
+  const fieldOrder = ['input', 'output', 'cached', 'cacheWrite', 'deprecated'];
+  const models = extrasObj.models || {};
+  const modelLines = Object.entries(models).map(([key, m]) => {
+    const fields = fieldOrder
+      .filter((f) => m[f] !== undefined)
+      .map((f) => `"${f}": ${JSON.stringify(m[f])}`)
+      .join(', ');
+    return `    ${JSON.stringify(key)}: { ${fields} }`;
+  });
+  const head = extrasObj._comment !== undefined ? `  "_comment": ${JSON.stringify(extrasObj._comment)},\n` : '';
+  return `{\n${head}  "models": {\n${modelLines.join(',\n')}\n  }\n}\n`;
+}
+
 async function build() {
   const yamlText = await loadYamlText();
   const entries = parseYaml(yamlText);
@@ -175,49 +224,103 @@ async function build() {
     for (const row of rows) lines.push(renderEntry(row.key, row));
   }
 
-  // Extra / legacy models not present in the published table.
+  // Extra / legacy models not present in the published table, curated in
+  // extra-models.json. When a model is dropped from the published table, its
+  // last-known rates are migrated here (flagged "deprecated": true) so old
+  // telemetry keeps resolving instead of silently losing its pricing.
   const extras = extrasRaw.models || {};
-  const extraKeys = Object.keys(extras).filter((k) => !seenKeys.has(k));
-  if (extraKeys.length > 0) {
+
+  // Auto-capture: models that were in the previously generated file but are no
+  // longer in the published table and not already tracked in extras. Migrate
+  // them into extras with their last-known rates and a deprecated flag.
+  let previousContent = '';
+  try {
+    previousContent = await readFile(OUTPUT_PATH, 'utf8');
+  } catch {
+    // No prior file → nothing to migrate.
+  }
+  const previous = parseGeneratedPricing(previousContent);
+  let extrasChanged = false;
+  for (const [key, rates] of previous) {
+    if (seenKeys.has(key)) continue; // still published
+    if (Object.prototype.hasOwnProperty.call(extras, key)) continue; // already tracked
+    extras[key] = {
+      input: rates.input,
+      output: rates.output,
+      cached: rates.cached,
+      ...(rates.cacheWrite !== undefined ? { cacheWrite: rates.cacheWrite } : {}),
+      deprecated: true,
+    };
+    extrasChanged = true;
+  }
+
+  /** @param {string} key @param {any} m */
+  const renderExtra = (key, m) =>
+    renderEntry(key, {
+      input: numberLiteral(m.input),
+      output: numberLiteral(m.output),
+      cached: numberLiteral(m.cached),
+      cacheWrite: m.cacheWrite === undefined ? undefined : numberLiteral(m.cacheWrite),
+    });
+
+  const additionalKeys = Object.keys(extras).filter((k) => !seenKeys.has(k) && !extras[k].deprecated);
+  if (additionalKeys.length > 0) {
     lines.push('');
     lines.push('  // Additional models not in the official pricing table (see extra-models.json)');
-    for (const key of extraKeys) {
-      const m = extras[key];
-      lines.push(
-        renderEntry(key, {
-          input: numberLiteral(m.input),
-          output: numberLiteral(m.output),
-          cached: numberLiteral(m.cached),
-          cacheWrite: m.cacheWrite === undefined ? undefined : numberLiteral(m.cacheWrite),
-        }),
-      );
-    }
+    for (const key of additionalKeys) lines.push(renderExtra(key, extras[key]));
+  }
+
+  const deprecatedKeys = Object.keys(extras).filter((k) => !seenKeys.has(k) && extras[k].deprecated);
+  if (deprecatedKeys.length > 0) {
+    lines.push('');
+    lines.push('  // Deprecated models retained for historical telemetry (see extra-models.json)');
+    for (const key of deprecatedKeys) lines.push(renderExtra(key, extras[key]));
   }
 
   lines.push('};');
   lines.push('');
-  return lines.join('\n');
+  return { content: lines.join('\n'), extras: extrasRaw, extrasChanged };
 }
 
 async function main() {
-  const content = await build();
+  const { content, extras, extrasChanged } = await build();
   const check = process.argv.includes('--check');
+  const extrasText = serializeExtras(extras);
 
   if (check) {
-    let current = '';
+    let currentPricing = '';
+    let currentExtras = '';
     try {
-      current = await readFile(OUTPUT_PATH, 'utf8');
+      currentPricing = await readFile(OUTPUT_PATH, 'utf8');
     } catch {
       // file missing → out of date
     }
-    if (current.replace(/\r\n/g, '\n') !== content) {
-      console.error('pricing-data.ts is out of date. Run: node tools/update-pricing/generate.mjs');
+    try {
+      currentExtras = await readFile(EXTRAS_PATH, 'utf8');
+    } catch {
+      // file missing → out of date
+    }
+    const stale =
+      currentPricing.replace(/\r\n/g, '\n') !== content ||
+      currentExtras.replace(/\r\n/g, '\n') !== extrasText;
+    if (stale) {
+      console.error('pricing data is out of date. Run: node tools/update-pricing/generate.mjs');
       process.exit(1);
     }
-    console.log('pricing-data.ts is up to date.');
+    console.log('pricing data is up to date.');
     return;
   }
 
+  let currentExtrasOnDisk = '';
+  try {
+    currentExtrasOnDisk = await readFile(EXTRAS_PATH, 'utf8');
+  } catch {
+    // file missing → will be written
+  }
+  if (currentExtrasOnDisk.replace(/\r\n/g, '\n') !== extrasText) {
+    await writeFile(EXTRAS_PATH, extrasText, 'utf8');
+    console.log(extrasChanged ? `Updated ${EXTRAS_PATH} (migrated deprecated models)` : `Updated ${EXTRAS_PATH}`);
+  }
   await writeFile(OUTPUT_PATH, content, 'utf8');
   console.log(`Wrote ${OUTPUT_PATH}`);
 }
