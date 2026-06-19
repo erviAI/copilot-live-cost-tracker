@@ -163,6 +163,15 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     .model-row:last-child { border-bottom: none; }
     .model-name { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; }
     .model-cost { font-weight: 500; white-space: nowrap; margin-left: 8px; }
+    .est-badge {
+      margin-left: 5px;
+      padding: 0 4px;
+      border-radius: 3px;
+      font-size: 0.8em;
+      color: var(--vscode-editorWarning-foreground, #cca700);
+      border: 1px solid var(--vscode-editorWarning-foreground, #cca700);
+      opacity: 0.85;
+    }
 
     .chart-svg {
       display: block;
@@ -636,6 +645,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         '<div class="model-table">' +
         models.map(function(m) {
           return '<div class="model-row"><span class="model-name">' + shortModel(m.model) +
+            (m.estimated ? '<span class="est-badge" title="Estimated pricing — model not yet in the official table">~est</span>' : '') +
             '</span><span class="model-cost"' + costTitle(m.totalCost) + '>' + formatCost(m.totalCost) + '</span></div>';
         }).join('') + '</div></details>';
     }
@@ -714,7 +724,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           '<div class="session-info"><div class="session-title">' +
           '<span class="chevron">&#9654;</span> ' + escapeHtml(s.title) + '</div><div class="session-meta">' +
           (s.workspace ? '<span class="session-repo">' + escapeHtml(s.workspace) + '</span> \\u00b7 ' : '') +
-          (s.model ? shortModel(s.model) + ' \\u00b7 ' : '') + s.modelTurns + ' turns \\u00b7 ' + timeAgo(s.endedAt) +
+          (s.model ? shortModel(s.model) + ' \\u00b7 ' : '') + s.modelTurns + ' requests \\u00b7 ' + timeAgo(s.endedAt) +
           '</div></div><span class="session-cost"' + costTitle(s.totalCost) + '>' + formatCost(s.totalCost) + '</span></div>' +
           '<div class="session-detail" id="detail-' + escapeHtml(s.sessionId) + '"></div></li>'
         ).join('') + '</ul>';
@@ -834,8 +844,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       let html = '';
 
       // Per-model breakdown
-      html += '<div class="detail-section"><div class="detail-section-title">LLM Turns by Model (' + data.totalLlmCalls + ' total)</div>';
-      html += '<table class="detail-table"><tr><th>Model</th><th class="num">Turns</th><th class="num">Cost</th><th class="num">In</th><th class="num">Out</th><th class="num">Cache R</th><th class="num">Cache W</th><th class="num">Hit%</th><th class="num">tok/s</th></tr>';
+      html += '<div class="detail-section"><div class="detail-section-title">LLM Requests by Model (' + data.totalLlmCalls + ' total)</div>';
+      html += '<table class="detail-table"><tr><th>Model</th><th class="num">Requests</th><th class="num">Cost</th><th class="num">In</th><th class="num">Out</th><th class="num">Cache R</th><th class="num">Cache W</th><th class="num">Hit%</th><th class="num">tok/s</th></tr>';
       data.byModel.forEach(function(m) {
         html += '<tr><td>' + shortModel(m.model) + '</td>' +
           '<td class="num">' + m.calls + '</td>' +
@@ -853,9 +863,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       if (data.turns && data.turns.length > 0) {
         var turnsWrapperId = 'turns-wrap-' + sessionId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
         var turnsOpen = !!turnsExpandedSessions[sessionId];
-        html += '<div class="detail-section"><div class="detail-section-title turns-section-title" data-wrapper="' + turnsWrapperId + '"><span class="section-chevron' + (turnsOpen ? ' open' : '') + '">&#9654;</span> Cost per Turn (' + data.turns.length + ' turns)</div>';
+        html += '<div class="detail-section"><div class="detail-section-title turns-section-title" data-wrapper="' + turnsWrapperId + '"><span class="section-chevron' + (turnsOpen ? ' open' : '') + '">&#9654;</span> Cost per User Prompt (' + data.turns.length + ' prompts)</div>';
         html += '<div id="' + turnsWrapperId + '" class="' + (turnsOpen ? '' : 'hidden') + '"><table class="detail-table">';
-        html += '<tr><th>Trace</th><th class="num">Turns</th><th class="num">Cost</th><th class="num">In</th><th class="num">Out</th><th class="num">Cache R</th><th class="num">Cache W</th></tr>';
+        html += '<tr><th>Trace</th><th class="num">Requests</th><th class="num">Cost</th><th class="num">In</th><th class="num">Out</th><th class="num">Cache R</th><th class="num">Cache W</th><th class="num">Hit%</th></tr>';
         data.turns.forEach(function(t, idx) {
           var turnId = 'turn-spans-' + idx;
           var traceLabel = t.traceId ? t.traceId.slice(0, 8) : ('T' + t.turnIndex);
@@ -872,7 +882,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
             'Duration: ' + formatDuration(t.durationMs),
             'Tokens: ' + formatTokens(totalTokens) + ' (in ' + formatTokens(t.inputTokens) + ' / out ' + formatTokens(t.outputTokens) + ' / cache ' + formatTokens(t.cachedTokens) + ')',
             'Cost: ' + formatCost(t.totalCost),
-            'Turns: ' + t.llmCalls
+            'Requests: ' + t.llmCalls
           ].filter(Boolean);
           var tipHtml = tipLines.map(function(l) { return '<div>' + escapeHtml(l) + '</div>'; }).join('');
           html += '<tr class="turn-row has-tip" data-turn-id="' + turnId + '">' +
@@ -883,7 +893,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
             '<td class="num">' + formatTokens(t.inputTokens) + '</td>' +
             '<td class="num">' + formatTokens(t.outputTokens) + '</td>' +
             '<td class="num">' + formatTokens(t.cachedTokens) + '</td>' +
-            '<td class="num">' + formatTokens(t.cacheWriteTokens) + '</td></tr>';
+            '<td class="num">' + formatTokens(t.cacheWriteTokens) + '</td>' +
+            '<td class="num">' + cacheHit(t.inputTokens, t.cachedTokens) + '</td></tr>';
           // Nested span rows (hidden via CSS .span-row)
           if (t.spans && t.spans.length > 0) {
             t.spans.forEach(function(sp, spIdx) {
@@ -906,7 +917,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
                 '<td class="num">' + formatTokens(sp.inputTokens) + '</td>' +
                 '<td class="num">' + formatTokens(sp.outputTokens) + '</td>' +
                 '<td class="num">' + formatTokens(sp.cachedTokens) + '</td>' +
-                '<td class="num">' + formatTokens(sp.cacheWriteTokens) + '</td></tr>';
+                '<td class="num">' + formatTokens(sp.cacheWriteTokens) + '</td>' +
+                '<td class="num">' + cacheHit(sp.inputTokens, sp.cachedTokens) + '</td></tr>';
             });
           }
           // Subagent child turns (indented, shown as distinct labeled groups)
@@ -931,7 +943,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
                 '<td class="num">' + formatTokens(child.inputTokens) + '</td>' +
                 '<td class="num">' + formatTokens(child.outputTokens) + '</td>' +
                 '<td class="num">' + formatTokens(child.cachedTokens) + '</td>' +
-                '<td class="num">' + formatTokens(child.cacheWriteTokens) + '</td></tr>';
+                '<td class="num">' + formatTokens(child.cacheWriteTokens) + '</td>' +
+                '<td class="num">' + cacheHit(child.inputTokens, child.cachedTokens) + '</td></tr>';
               // Nested spans within the child subagent
               if (child.spans && child.spans.length > 0) {
                 child.spans.forEach(function(csp, cspIdx) {
@@ -954,7 +967,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
                     '<td class="num">' + formatTokens(csp.inputTokens) + '</td>' +
                     '<td class="num">' + formatTokens(csp.outputTokens) + '</td>' +
                     '<td class="num">' + formatTokens(csp.cachedTokens) + '</td>' +
-                    '<td class="num">' + formatTokens(csp.cacheWriteTokens) + '</td></tr>';
+                    '<td class="num">' + formatTokens(csp.cacheWriteTokens) + '</td>' +
+                    '<td class="num">' + cacheHit(csp.inputTokens, csp.cachedTokens) + '</td></tr>';
                 });
               }
             });
@@ -1007,6 +1021,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M';
       if (count >= 1000) return (count / 1000).toFixed(1) + 'K';
       return '' + count;
+    }
+
+    function cacheHit(inputTokens, cachedTokens) {
+      return (inputTokens > 0 ? Math.round(100 * cachedTokens / inputTokens) : 0) + '%';
     }
 
     function shortModel(model) {

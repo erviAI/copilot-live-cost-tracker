@@ -80,6 +80,45 @@ describe('PricingEngine', () => {
     });
   });
 
+  describe('family fallback (estimated pricing)', () => {
+    it('prices a brand-new claude-opus-4-8 from the latest known Opus', () => {
+      const pricing = engine.resolve('claude-opus-4-8');
+      expect(pricing).not.toBeNull();
+      expect(pricing!.estimated).toBe(true);
+      // Inherits Claude Opus rates (input 5 / output 25 / cacheWrite 6.25)
+      expect(pricing!.input).toBe(5.00);
+      expect(pricing!.output).toBe(25.00);
+      expect(pricing!.cacheWrite).toBe(6.25);
+    });
+
+    it('accepts dotted form claude-opus-4.8 too', () => {
+      const pricing = engine.resolve('claude-opus-4.8');
+      expect(pricing).not.toBeNull();
+      expect(pricing!.estimated).toBe(true);
+      expect(pricing!.output).toBe(25.00);
+    });
+
+    it('picks the highest known version within the family', () => {
+      // Among opus 4-5/4-6/4-7 the engine should estimate from the latest.
+      // All Opus rates are equal here, so assert it stays within the family
+      // and is flagged estimated rather than matching Sonnet.
+      const pricing = engine.resolve('claude-opus-4-9');
+      expect(pricing!.estimated).toBe(true);
+      expect(pricing!.input).toBe(5.00); // Opus, not Sonnet (3.00)
+    });
+
+    it('does not flag exact matches as estimated', () => {
+      const pricing = engine.resolve('claude-opus-4-5');
+      expect(pricing!.estimated).toBeUndefined();
+    });
+
+    it('does not fall back across unrelated providers', () => {
+      // Only one shared leading segment ("mistral" shares nothing known) → null.
+      const pricing = engine.resolve('mistral-large-2');
+      expect(pricing).toBeNull();
+    });
+  });
+
   describe('user overrides', () => {
     it('overrides existing model pricing', () => {
       const custom = new PricingEngine({

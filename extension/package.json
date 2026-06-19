@@ -2,7 +2,7 @@
   "name": "copilot-cost-tracker",
   "displayName": "GitHub Copilot Cost Tracker",
   "description": "Track GitHub Copilot token usage and costs in real-time with a sidebar dashboard and status bar.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "ervi",
   "license": "MIT",
   "repository": {
@@ -190,13 +190,13 @@
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^20.14.0",
     "@types/vscode": "^1.100.0",
-    "@vscode/vsce": "^3.0.0",
-    "esbuild": "^0.21.0",
-    "eslint": "^9.0.0",
-    "typescript": "^5.5.0",
-    "vitest": "^2.0.0"
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.5.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
   },
   "dependencies": {
-    "better-sqlite3": "^12.10.0"
+    "better-sqlite3": "^12.11.1"
   }
 }

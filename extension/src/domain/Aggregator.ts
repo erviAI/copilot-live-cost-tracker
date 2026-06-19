@@ -140,6 +140,7 @@ export class Aggregator {
         cacheWriteCost: cost?.cacheWriteCost ?? 0,
         outputCost: cost?.outputCost ?? 0,
         totalCost: cost?.totalCost ?? 0,
+        estimated: cost?.estimated ?? false,
       };
 
       modelCosts.push(modelCost);

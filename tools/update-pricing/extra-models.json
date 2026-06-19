@@ -1,0 +1,11 @@
+{
+  "_comment": "Models that are NOT present in GitHub's published pricing table (data/tables/copilot/models-and-pricing.yml) but that still appear in telemetry and need pricing. These are merged after the generated entries. Keys follow the same convention as the generated keys. Rates are per 1M tokens (USD). Anthropic-style models may include a cacheWrite rate.",
+  "models": {
+    "gpt-4o-mini": { "input": 0.15, "output": 0.6, "cached": 0.075 },
+    "gpt-4o": { "input": 2.5, "output": 10.0, "cached": 1.25 },
+    "o1": { "input": 15.0, "output": 60.0, "cached": 7.5 },
+    "o1-mini": { "input": 3.0, "output": 12.0, "cached": 1.5 },
+    "o3-mini": { "input": 1.1, "output": 4.4, "cached": 0.55 },
+    "goldeneye": { "input": 1.25, "output": 10.0, "cached": 0.125 }
+  }
+}

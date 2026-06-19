@@ -1,0 +1,14 @@
+{
+  "name": "update-pricing",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Regenerates the Copilot Cost Tracker pricing table from GitHub's published pricing data.",
+  "type": "module",
+  "scripts": {
+    "generate": "node generate.mjs",
+    "check": "node generate.mjs --check"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}

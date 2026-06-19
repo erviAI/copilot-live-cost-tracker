@@ -97,12 +97,87 @@ export class PricingEngine {
       }
     }
 
+    // 6. Family fallback — a brand-new model version (e.g. "claude-opus-4-8")
+    // not yet in the pricing table inherits rates from the closest known
+    // sibling in the same family. The result is flagged `estimated` so callers
+    // can surface it as tentative until exact pricing is published.
+    if (!bestMatch) {
+      bestMatch = this.resolveFamilyFallback(dashed);
+    }
+
     this.matchCache.set(modelIdentifier, bestMatch);
     return bestMatch;
   }
+
+  /**
+   * Find the closest known model in the same family and return a copy of its
+   * pricing marked `estimated`. Matching requires at least two shared leading
+   * dash-delimited segments (e.g. "claude-opus") to avoid pricing unrelated
+   * models off a coincidental provider prefix. Among the candidates sharing the
+   * longest prefix, the highest version is chosen.
+   */
+  private resolveFamilyFallback(dashed: string): ModelPricing | null {
+    const targetSegments = dashed.split('-');
+    const MIN_SHARED_SEGMENTS = 2;
+
+    let bestSharedSegments = 0;
+    let bestKeySegments: string[] = [];
+    let bestPricing: ModelPricing | null = null;
+
+    for (const [key, pricing] of this.pricing) {
+      const keySegments = key.split('-');
+      const shared = sharedPrefixLength(targetSegments, keySegments);
+      if (shared < MIN_SHARED_SEGMENTS) continue;
+
+      if (
+        shared > bestSharedSegments ||
+        (shared === bestSharedSegments && compareVersionSegments(keySegments, bestKeySegments) > 0)
+      ) {
+        bestSharedSegments = shared;
+        bestKeySegments = keySegments;
+        bestPricing = pricing;
+      }
+    }
+
+    if (!bestPricing) return null;
+    return { ...bestPricing, estimated: true };
+  }
+
 
   /** Get all known model keys (for diagnostics/settings UI) */
   getKnownModels(): string[] {
     return Array.from(this.pricing.keys());
   }
+}
+
+/** Count how many leading dash-delimited segments two models share. */
+function sharedPrefixLength(a: string[], b: string[]): number {
+  const max = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < max && a[i] === b[i]) i++;
+  return i;
+}
+
+/**
+ * Compare two segment arrays as version tuples. Numeric segments compare
+ * numerically, others lexicographically. Returns >0 if `a` is the higher
+ * (later) version, <0 if lower, 0 if equal.
+ */
+function compareVersionSegments(a: string[], b: string[]): number {
+  const max = Math.max(a.length, b.length);
+  for (let i = 0; i < max; i++) {
+    const av = a[i];
+    const bv = b[i];
+    if (av === undefined) return -1;
+    if (bv === undefined) return 1;
+    const an = Number(av);
+    const bn = Number(bv);
+    const bothNumeric = !Number.isNaN(an) && !Number.isNaN(bn);
+    if (bothNumeric) {
+      if (an !== bn) return an - bn;
+    } else if (av !== bv) {
+      return av < bv ? -1 : 1;
+    }
+  }
+  return 0;
 }

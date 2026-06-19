@@ -27,7 +27,9 @@ export class CostCalculator {
     const pricing = this.pricingEngine.resolve(model);
     if (!pricing) return null;
 
-    return this.calculateWithRates(pricing, inputTokens, outputTokens, cachedTokens, cacheWriteTokens);
+    const breakdown = this.calculateWithRates(pricing, inputTokens, outputTokens, cachedTokens, cacheWriteTokens);
+    if (pricing.estimated) breakdown.estimated = true;
+    return breakdown;
   }
 
   /**
@@ -72,4 +74,6 @@ export interface CostBreakdown {
   cacheWriteCost: number;
   outputCost: number;
   totalCost: number;
+  /** True when these costs were derived from estimated (family-inferred) pricing. */
+  estimated?: boolean;
 }

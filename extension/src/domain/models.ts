@@ -41,6 +41,8 @@ export interface ModelCost {
   cacheWriteCost: number;
   outputCost: number;
   totalCost: number;
+  /** True when costs were derived from estimated (family-inferred) pricing. */
+  estimated?: boolean;
 }
 
 /** Aggregated cost data for a time period */
@@ -175,6 +177,12 @@ export interface ModelPricing {
   output: number;
   cached: number;
   cacheWrite?: number;
+  /**
+   * True when these rates were inferred from a related model family rather than
+   * matched exactly (e.g. a newly launched version not yet in the pricing table).
+   * Costs derived from estimated pricing should be surfaced as tentative.
+   */
+  estimated?: boolean;
 }
 
 // --- Cost History Persistence Types ---

@@ -1,0 +1,54 @@
+name: Update Copilot pricing
+
+# Keeps extension/src/domain/pricing-data.ts in sync with GitHub's published
+# Copilot pricing table and opens a PR whenever the rates change.
+
+on:
+  schedule:
+    # Every Monday at 06:00 UTC.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-pricing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install generator dependencies
+        working-directory: tools/update-pricing
+        run: npm install --no-audit --no-fund
+
+      - name: Regenerate pricing-data.ts
+        working-directory: tools/update-pricing
+        run: node generate.mjs
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'chore: update Copilot model pricing'
+          branch: chore/update-pricing
+          delete-branch: true
+          title: 'chore: update Copilot model pricing'
+          body: |
+            Automated update of `extension/src/domain/pricing-data.ts` from
+            GitHub's published pricing table
+            (`github/docs` → `data/tables/copilot/models-and-pricing.yml`).
+
+            Review the diff to confirm the new rates before merging. New model
+            versions that land between runs are priced tentatively at runtime
+            via the PricingEngine family fallback until this PR is merged.
+          labels: |
+            dependencies
+            automated
