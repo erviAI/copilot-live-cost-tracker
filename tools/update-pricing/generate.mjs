@@ -54,6 +54,18 @@ function toKey(model, provider) {
 }
 
 /**
+ * Detect the "Long context" overflow tier of a tiered-pricing model. GitHub
+ * lists these as a second row sharing the same model name, with a threshold
+ * like "> 272K" and a tier label such as "Long context".
+ * @param {{ threshold?: unknown, tier?: unknown }} entry
+ */
+function isLongContextTier(entry) {
+  const threshold = String(entry.threshold ?? '').trim();
+  const tier = String(entry.tier ?? '').trim().toLowerCase();
+  return threshold.startsWith('>') || tier === 'long context';
+}
+
+/**
  * Turn a "$5.00" price string into a JS numeric literal string, preserving the
  * source decimals so the generated file matches GitHub's published precision.
  * @param {unknown} raw
@@ -118,6 +130,11 @@ async function build() {
       throw new Error(`Missing price for model "${entry.model}" (provider ${provider}).`);
     }
     if (seenKeys.has(key)) {
+      // GitHub publishes tiered pricing as multiple rows sharing the same model
+      // name (a "Default" tier plus a "Long context" overflow tier for inputs
+      // above a threshold). Telemetry does not distinguish tiers, so we keep the
+      // headline Default tier (first row) and skip the long-context overflow row.
+      if (isLongContextTier(entry)) continue;
       throw new Error(`Duplicate key generated: "${key}".`);
     }
     seenKeys.add(key);
