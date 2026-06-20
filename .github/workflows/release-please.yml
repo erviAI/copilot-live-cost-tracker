@@ -1,0 +1,26 @@
+name: Release Please
+
+# Parses Conventional Commits on every push to main and maintains a rolling
+# "release PR" that bumps extension/package.json and updates the changelog.
+# Merging that PR creates a GitHub Release + tag (vX.Y.Z), which in turn
+# triggers .github/workflows/publish.yml to publish to the Marketplace.
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run release-please
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

@@ -1,0 +1,74 @@
+name: Publish Extension
+
+# Builds one platform-specific VSIX per target (each carries the matching
+# native better-sqlite3 binary) and publishes it to the VS Code Marketplace.
+# Triggered when release-please publishes a GitHub Release (tag vX.Y.Z).
+
+on:
+  release:
+    types: [published]
+  # Manual trigger for testing the build/package matrix from any branch.
+  # Leave dry_run = true (default) to package + upload artifacts WITHOUT
+  # publishing to the Marketplace. Set it to false to do a real publish.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Package only, skip Marketplace publish'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: win32-x64
+          - os: macos-14
+            target: darwin-arm64
+          - os: ubuntu-latest
+            target: linux-x64
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Package VSIX (${{ matrix.target }})
+        run: npx @vscode/vsce package --target ${{ matrix.target }} -o copilot-cost-tracker-${{ matrix.target }}.vsix
+
+      - name: Publish to Marketplace (${{ matrix.target }})
+        if: ${{ github.event_name == 'release' || github.event.inputs.dry_run == 'false' }}
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx @vscode/vsce publish --packagePath copilot-cost-tracker-${{ matrix.target }}.vsix
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: copilot-cost-tracker-${{ matrix.target }}
+          path: extension/copilot-cost-tracker-${{ matrix.target }}.vsix
+          if-no-files-found: error
