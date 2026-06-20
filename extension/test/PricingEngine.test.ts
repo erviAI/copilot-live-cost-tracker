@@ -81,8 +81,12 @@ describe('PricingEngine', () => {
   });
 
   describe('family fallback (estimated pricing)', () => {
-    it('prices a brand-new claude-opus-4-8 from the latest known Opus', () => {
-      const pricing = engine.resolve('claude-opus-4-8');
+    // These use a far-future Opus version (9-x) that the auto-generated
+    // pricing table is not expected to contain. Do NOT use a near-future
+    // version (e.g. the next 4-x): the weekly pricing updater would add it as
+    // a real model and turn these into exact matches, breaking the test.
+    it('prices a brand-new claude-opus-9-9 from the latest known Opus', () => {
+      const pricing = engine.resolve('claude-opus-9-9');
       expect(pricing).not.toBeNull();
       expect(pricing!.estimated).toBe(true);
       // Inherits Claude Opus rates (input 5 / output 25 / cacheWrite 6.25)
@@ -91,18 +95,17 @@ describe('PricingEngine', () => {
       expect(pricing!.cacheWrite).toBe(6.25);
     });
 
-    it('accepts dotted form claude-opus-4.8 too', () => {
-      const pricing = engine.resolve('claude-opus-4.8');
+    it('accepts dotted form claude-opus-9.9 too', () => {
+      const pricing = engine.resolve('claude-opus-9.9');
       expect(pricing).not.toBeNull();
       expect(pricing!.estimated).toBe(true);
       expect(pricing!.output).toBe(25.00);
     });
 
     it('picks the highest known version within the family', () => {
-      // Among opus 4-5/4-6/4-7 the engine should estimate from the latest.
-      // All Opus rates are equal here, so assert it stays within the family
-      // and is flagged estimated rather than matching Sonnet.
-      const pricing = engine.resolve('claude-opus-4-9');
+      // All known Opus rates are equal here, so assert it stays within the
+      // family (Opus) and is flagged estimated rather than matching Sonnet.
+      const pricing = engine.resolve('claude-opus-9-1');
       expect(pricing!.estimated).toBe(true);
       expect(pricing!.input).toBe(5.00); // Opus, not Sonnet (3.00)
     });

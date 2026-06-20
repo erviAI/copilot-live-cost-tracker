@@ -218,16 +218,25 @@ describe('CostHistoryService', () => {
       const dailyDir = path.join(tmpDir, 'cost-history', 'daily');
       await fs.mkdir(dailyDir, { recursive: true });
 
-      const day1 = { date: '2026-05-28', totalCost: 1.0, modelTurns: 10, inputTokens: 50000, outputTokens: 20000, cachedTokens: 30000, cacheWriteTokens: 5000, byModel: [], byWorkspace: [], sessionCount: 2 };
-      const day2 = { date: '2026-05-29', totalCost: 2.0, modelTurns: 20, inputTokens: 100000, outputTokens: 40000, cachedTokens: 60000, cacheWriteTokens: 10000, byModel: [], byWorkspace: [], sessionCount: 4 };
+      // Use dates within the requested window (relative to today) so the test
+      // is not tied to a fixed calendar date — getHistory filters by recency.
+      const d1 = new Date();
+      d1.setDate(d1.getDate() - 2);
+      const d2 = new Date();
+      d2.setDate(d2.getDate() - 1);
+      const date1 = formatDate(d1);
+      const date2 = formatDate(d2);
 
-      await fs.writeFile(path.join(dailyDir, '2026-05-28.json'), JSON.stringify(day1));
-      await fs.writeFile(path.join(dailyDir, '2026-05-29.json'), JSON.stringify(day2));
+      const day1 = { date: date1, totalCost: 1.0, modelTurns: 10, inputTokens: 50000, outputTokens: 20000, cachedTokens: 30000, cacheWriteTokens: 5000, byModel: [], byWorkspace: [], sessionCount: 2 };
+      const day2 = { date: date2, totalCost: 2.0, modelTurns: 20, inputTokens: 100000, outputTokens: 40000, cachedTokens: 60000, cacheWriteTokens: 10000, byModel: [], byWorkspace: [], sessionCount: 4 };
+
+      await fs.writeFile(path.join(dailyDir, `${date1}.json`), JSON.stringify(day1));
+      await fs.writeFile(path.join(dailyDir, `${date2}.json`), JSON.stringify(day2));
 
       const history = await service.getHistory(7);
       expect(history).toHaveLength(2);
-      expect(history[0].date).toBe('2026-05-28');
-      expect(history[1].date).toBe('2026-05-29');
+      expect(history[0].date).toBe(date1);
+      expect(history[1].date).toBe(date2);
       expect(history[1].totalCost).toBe(2.0);
     });
   });
