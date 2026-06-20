@@ -371,7 +371,7 @@ describe('Aggregator', () => {
       const dashboard = aggregator.buildDashboard(spans, titles, parentSessionId);
 
       // All 3 spans (1 parent + 2 sub-agent) should be in currentSession
-      expect(dashboard.currentSession.requests).toBe(3);
+      expect(dashboard.currentSession.modelTurns).toBe(3);
       expect(dashboard.currentSession.spanCount).toBe(3);
       expect(dashboard.currentSession.sessionId).toBe(parentSessionId);
       expect(dashboard.currentSession.byModel).toHaveLength(2);
