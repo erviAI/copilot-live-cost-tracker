@@ -7,6 +7,15 @@ name: Publish Extension
 on:
   release:
     types: [published]
+  # Manual trigger for testing the build/package matrix from any branch.
+  # Leave dry_run = true (default) to package + upload artifacts WITHOUT
+  # publishing to the Marketplace. Set it to false to do a real publish.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Package only, skip Marketplace publish'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -52,6 +61,7 @@ jobs:
         run: npx @vscode/vsce package --target ${{ matrix.target }} -o copilot-cost-tracker-${{ matrix.target }}.vsix
 
       - name: Publish to Marketplace (${{ matrix.target }})
+        if: ${{ github.event_name == 'release' || github.event.inputs.dry_run == 'false' }}
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: npx @vscode/vsce publish --packagePath copilot-cost-tracker-${{ matrix.target }}.vsix
