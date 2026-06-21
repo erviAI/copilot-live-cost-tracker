@@ -54,7 +54,8 @@ CI runs these same checks on every pull request.
 
 - Keep the layering intact: `data → domain → services → presentation`. Domain
   and service code must not import the `vscode` API directly — depend on an
-  interface and inject the implementation from `extension.ts`.
+  interface and inject the implementation from `extension.ts`. See
+  [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 - Add or update unit tests for behavioural changes.
 - Prefer small, focused pull requests with a clear description.
 

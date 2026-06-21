@@ -245,7 +245,7 @@ export class CostTrackingService implements vscode.Disposable {
   }
 
   private getUnavailableGuidance(): string {
-    return `Cost tracking reads agent-traces.db, which Copilot Chat only writes when OpenTelemetry tracing is enabled.\n\nTo fix this:\n1. Enable the setting "github.copilot.chat.otel.dbSpanExporter.enabled"\n2. Run a Copilot Chat session\n3. Restart VS Code if the file still isn't created\n\nExpected path: %APPDATA%/Code/User/globalStorage/github.copilot-chat/agent-traces.db`;
+    return `Cost tracking reads agent-traces.db, which Copilot Chat only writes when OpenTelemetry tracing is enabled.\n\nTo fix this:\n1. Enable the setting "github.copilot.chat.otel.dbSpanExporter.enabled"\n2. Run a Copilot Chat session\n3. Restart VS Code if the file still isn't created\n\nExpected location: <VS Code user data>/User/globalStorage/github.copilot-chat/agent-traces.db`;
   }
 
   /** Update polling interval when settings change */

@@ -97,6 +97,7 @@ export class Aggregator {
     // workspace totals use the exact same rounding path as the per-model totals.
     type WsTokens = { inputTokens: number; outputTokens: number; cachedTokens: number; cacheWriteTokens: number };
     const byWs = new Map<string, { requests: number; sessionIds: Set<string>; byModel: Map<string, WsTokens> }>();
+    const traceToSession = buildTraceToSessionMap(spans);
 
     for (const span of spans) {
       const model = span.responseModel ?? span.requestModel ?? 'unknown';
@@ -112,7 +113,7 @@ export class Aggregator {
 
       // Accumulate per-workspace token totals if mapping provided
       if (sessionWorkspaces) {
-        const sessionId = span.chatSessionId ?? span.conversationId;
+        const sessionId = getWorkspaceSessionId(span, traceToSession);
         const ws = (sessionId ? sessionWorkspaces.get(sessionId) : null) ?? 'Unknown';
         const wsEntry = byWs.get(ws) ?? { requests: 0, sessionIds: new Set<string>(), byModel: new Map<string, WsTokens>() };
         wsEntry.requests++;
@@ -232,14 +233,7 @@ export class Aggregator {
 
     // Build trace_id → real session ID map for resolving subagent spans.
     // All spans in a turn share trace_id; parent spans have a real UUID chatSessionId.
-    const traceToSession = new Map<string, string>();
-    for (const span of chatSpans) {
-      if (span.chatSessionId && !isToolCallSessionId(span.chatSessionId)) {
-        if (!traceToSession.has(span.traceId)) {
-          traceToSession.set(span.traceId, span.chatSessionId);
-        }
-      }
-    }
+    const traceToSession = buildTraceToSessionMap(chatSpans);
 
     // Group spans by session
     const sessions = new Map<string, Span[]>();
@@ -446,6 +440,23 @@ function getCanonicalSessionId(span: Span, _conversationToChat: Map<string, stri
   if (span.chatSessionId) return span.chatSessionId;
   if (span.conversationId) return _conversationToChat.get(span.conversationId) ?? span.conversationId;
   return 'unknown';
+}
+
+function getWorkspaceSessionId(span: Span, traceToSession: Map<string, string>): string | null {
+  if (span.chatSessionId && isToolCallSessionId(span.chatSessionId)) {
+    return traceToSession.get(span.traceId) ?? span.conversationId ?? span.chatSessionId;
+  }
+  return span.chatSessionId ?? span.conversationId;
+}
+
+function buildTraceToSessionMap(spans: Span[]): Map<string, string> {
+  const traceToSession = new Map<string, string>();
+  for (const span of spans) {
+    if (span.chatSessionId && !isToolCallSessionId(span.chatSessionId) && !traceToSession.has(span.traceId)) {
+      traceToSession.set(span.traceId, span.chatSessionId);
+    }
+  }
+  return traceToSession;
 }
 
 /** Returns true if the session ID looks like a tool-call ID (subagent invocation). */

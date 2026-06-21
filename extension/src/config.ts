@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { BudgetThresholds, ModelPricing } from './domain/models.js';
 
 const SECTION = 'copilotCostTracker';
+const MAX_BUDGET_THRESHOLD = 1_000_000;
 
 /**
  * VS Code setting that makes Copilot Chat persist OpenTelemetry spans to the
@@ -35,19 +36,26 @@ export function getPollingInterval(): number {
 export function getBudgetThresholds(): BudgetThresholds {
   const config = vscode.workspace.getConfiguration(SECTION);
   return {
-    session: {
-      warning: config.get<number>('budget.session.warning', 5),
-      limit: config.get<number>('budget.session.limit', 8),
-    },
-    daily: {
-      warning: config.get<number>('budget.daily.warning', 20),
-      limit: config.get<number>('budget.daily.limit', 50),
-    },
-    weekly: {
-      warning: config.get<number>('budget.weekly.warning', 25),
-      limit: config.get<number>('budget.weekly.limit', 50),
-    },
+    session: getBudgetThreshold(config, 'budget.session.warning', 'budget.session.limit', { warning: 5, limit: 8 }),
+    daily: getBudgetThreshold(config, 'budget.daily.warning', 'budget.daily.limit', { warning: 20, limit: 50 }),
+    weekly: getBudgetThreshold(config, 'budget.weekly.warning', 'budget.weekly.limit', { warning: 25, limit: 50 }),
   };
+}
+
+function getBudgetThreshold(
+  config: vscode.WorkspaceConfiguration,
+  warningKey: string,
+  limitKey: string,
+  defaults: { warning: number; limit: number }
+): { warning: number; limit: number } {
+  const warning = toBudgetValue(config.get<unknown>(warningKey), defaults.warning);
+  const limit = toBudgetValue(config.get<unknown>(limitKey), defaults.limit);
+  return warning <= limit ? { warning, limit } : defaults;
+}
+
+function toBudgetValue(value: unknown, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return fallback;
+  return Math.min(value, MAX_BUDGET_THRESHOLD);
 }
 
 export function getPricingOverrides(): Record<string, ModelPricing> | undefined {

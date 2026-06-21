@@ -20,7 +20,7 @@ class WorkerProcess {
   private static instance: WorkerProcess | null = null;
   private process: ChildProcess | null = null;
   private requestId = 0;
-  private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+  private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private buffer = '';
   private starting: Promise<void> | null = null;
 
@@ -54,10 +54,11 @@ class WorkerProcess {
       const systemNode = findSystemNode();
 
       let settled = false;
+      let startupTimer: ReturnType<typeof setTimeout> | null = null;
       const settle = (err?: Error): void => {
         if (settled) return;
         settled = true;
-        clearTimeout(startupTimer);
+        if (startupTimer) clearTimeout(startupTimer);
         if (err) {
           this.process = null;
           this.starting = null;
@@ -88,7 +89,7 @@ class WorkerProcess {
       });
 
       // Fail fast if the worker never announces readiness.
-      const startupTimer = setTimeout(() => {
+      startupTimer = setTimeout(() => {
         settle(new Error('Worker did not become ready within 10s'));
       }, 10_000);
 
@@ -161,7 +162,7 @@ class WorkerProcess {
     }
   }
 
-  async send(action: string, payload: Record<string, unknown> = {}): Promise<any> {
+  async send(action: string, payload: Record<string, unknown> = {}): Promise<unknown> {
     await this.ensureStarted();
     if (!this.process || !this.process.stdin) {
       throw new Error('Worker process not available');
@@ -213,7 +214,7 @@ class WorkerDatabase implements Database {
 
     this.opening = (async () => {
       const worker = WorkerProcess.getInstance();
-      const result = await worker.send('open', { dbPath: this.dbPath });
+      const result = await worker.send('open', { dbPath: this.dbPath }) as { handle: number };
       this.handle = result.handle;
     })();
 
@@ -224,15 +225,15 @@ class WorkerDatabase implements Database {
   async all<T>(sql: string, params: unknown[]): Promise<T[]> {
     const handle = await this.ensureOpen();
     const worker = WorkerProcess.getInstance();
-    const result = await worker.send('all', { handle, sql, params });
-    return result.rows as T[];
+    const result = await worker.send('all', { handle, sql, params }) as { rows: T[] };
+    return result.rows;
   }
 
   async get<T>(sql: string, params: unknown[]): Promise<T | undefined> {
     const handle = await this.ensureOpen();
     const worker = WorkerProcess.getInstance();
-    const result = await worker.send('get', { handle, sql, params });
-    return result.row as T | undefined;
+    const result = await worker.send('get', { handle, sql, params }) as { row: T | null };
+    return result.row ?? undefined;
   }
 
   close(): void {

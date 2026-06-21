@@ -1,7 +1,12 @@
 # Copilot Data Sources
 
 This repo studies how GitHub Copilot persists per-session telemetry and conversation state. Copilot writes to **multiple stores in parallel**; understanding which one holds what is the key to extracting accurate usage data.
-
+> **Note on paths:** the file locations below are shown for Windows + VS Code
+> Stable (`%APPDATA%\Code\User\...`) for readability. The extension does **not**
+> hardcode this — it derives VS Code's `User` directory from its own global
+> storage path, so the same logic resolves the correct location on macOS/Linux
+> and for Insiders, VSCodium, and portable installs. Substitute your product's
+> user-data directory for `Code\User` accordingly.
 ## TL;DR — which file to use for what
 
 | Need | Use |
