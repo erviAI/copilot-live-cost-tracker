@@ -48,48 +48,101 @@ class WorkerProcess {
 
     this.starting = new Promise<void>((resolve, reject) => {
       const workerPath = this.getWorkerPath();
-      const nodePath = process.execPath; // Use same node as the system
 
-      // Find a node binary that has access to better-sqlite3
-      // For VS Code extensions, we need the system node, not Electron's
+      // Find a node binary that has access to better-sqlite3.
+      // For VS Code extensions, we need the system node, not Electron's.
       const systemNode = findSystemNode();
 
-      this.process = spawn(systemNode, [workerPath], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env },
+      let settled = false;
+      const settle = (err?: Error): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(startupTimer);
+        if (err) {
+          this.process = null;
+          this.starting = null;
+          reject(err);
+        } else {
+          resolve();
+        }
+      };
+
+      let child: ChildProcess;
+      try {
+        child = spawn(systemNode, [workerPath], {
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: { ...process.env },
+        });
+      } catch (err) {
+        settle(err instanceof Error ? err : new Error(String(err)));
+        return;
+      }
+      this.process = child;
+
+      // Spawn failures (e.g. ENOENT when node is not on PATH) surface via 'error',
+      // not 'exit' — without this the worker would silently never become ready.
+      child.on('error', (err) => {
+        logger.error('[Worker] spawn error:', err);
+        this.failAllPending(err);
+        settle(err);
       });
 
-      this.process.stdout!.setEncoding('utf8');
-      this.process.stdout!.on('data', (chunk: string) => {
+      // Fail fast if the worker never announces readiness.
+      const startupTimer = setTimeout(() => {
+        settle(new Error('Worker did not become ready within 10s'));
+      }, 10_000);
+
+      child.stdout!.setEncoding('utf8');
+      child.stdout!.on('data', (chunk: string) => {
         this.buffer += chunk;
         let idx;
         while ((idx = this.buffer.indexOf('\n')) !== -1) {
           const line = this.buffer.slice(0, idx).trim();
           this.buffer = this.buffer.slice(idx + 1);
-          if (line) this.handleResponse(line);
+          if (!line) continue;
+          if (!settled) {
+            // The first line is the readiness handshake.
+            const handshake = this.tryParseHandshake(line);
+            if (handshake === 'ready') { settle(); continue; }
+            if (handshake && handshake.fatal) { settle(new Error(`Worker failed to start: ${handshake.fatal}`)); continue; }
+          }
+          this.handleResponse(line);
         }
       });
 
-      this.process.stderr!.on('data', (chunk: Buffer) => {
+      child.stderr!.on('data', (chunk: Buffer) => {
         logger.error('[Worker]', chunk.toString());
       });
 
-      this.process.on('exit', (code) => {
+      child.on('exit', (code) => {
         this.process = null;
         this.starting = null;
-        // Reject all pending requests
-        for (const [, { reject: rej }] of this.pending) {
-          rej(new Error(`Worker exited with code ${code}`));
-        }
-        this.pending.clear();
+        this.failAllPending(new Error(`Worker exited with code ${code}`));
+        if (!settled) settle(new Error(`Worker exited before ready (code ${code})`));
       });
-
-      // Give the process a moment to start, then resolve
-      // (The worker is ready as soon as stdin/stdout are connected)
-      setTimeout(() => resolve(), 50);
     });
 
     return this.starting;
+  }
+
+  /** Parse the startup handshake line; returns 'ready', a fatal payload, or null. */
+  private tryParseHandshake(line: string): 'ready' | { fatal: string } | null {
+    try {
+      const msg = JSON.parse(line) as { ready?: boolean; fatal?: string };
+      if (msg.ready === true) return 'ready';
+      if (typeof msg.fatal === 'string') return { fatal: msg.fatal };
+    } catch {
+      // Not the handshake line.
+    }
+    return null;
+  }
+
+  /** Reject and clear all in-flight requests. */
+  private failAllPending(err: Error): void {
+    for (const [, { reject: rej }] of this.pending) {
+      rej(err);
+    }
+    this.pending.clear();
   }
 
   private handleResponse(line: string): void {

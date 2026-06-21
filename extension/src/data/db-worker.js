@@ -12,12 +12,23 @@ const path = require('path');
 // Resolve better-sqlite3 from the extension's node_modules (next to this script)
 const extensionRoot = path.resolve(__dirname, '..');
 const modulePath = path.join(extensionRoot, 'node_modules', 'better-sqlite3');
-const Database = require(modulePath);
+let Database;
+try {
+  Database = require(modulePath);
+} catch (err) {
+  // Signal a fatal startup failure to the parent and exit; the parent's
+  // ensureStarted() will reject rather than hang waiting for readiness.
+  process.stdout.write(JSON.stringify({ fatal: (err && err.message) || String(err) }) + '\n');
+  process.exit(1);
+}
 
 const databases = new Map();
 let dbCounter = 0;
 
 process.stdin.setEncoding('utf8');
+
+// Announce readiness so the parent resolves only once the module is loaded.
+process.stdout.write(JSON.stringify({ ready: true }) + '\n');
 
 let buffer = '';
 process.stdin.on('data', (chunk) => {

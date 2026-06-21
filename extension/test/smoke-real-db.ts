@@ -12,9 +12,11 @@ import { Aggregator } from '../src/domain/Aggregator.js';
 
 async function main() {
   const appData = process.env['APPDATA'] ?? path.join(os.homedir(), 'AppData', 'Roaming');
-  console.log(`Using APPDATA: ${appData}`);
+  // AgentTracesRepository expects VS Code's `User` directory (Stable layout).
+  const userDir = path.join(appData, 'Code', 'User');
+  console.log(`Using User dir: ${userDir}`);
 
-  const repo = new AgentTracesRepository(appData);
+  const repo = new AgentTracesRepository(userDir);
   const available = await repo.isAvailable();
   console.log(`Database available: ${available}`);
 

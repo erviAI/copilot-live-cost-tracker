@@ -292,10 +292,10 @@ describe('Aggregator', () => {
       expect(dashboard.today.byWorkspace).toHaveLength(2);
       const myProject = dashboard.today.byWorkspace.find(w => w.workspace === 'my-project')!;
       const otherProject = dashboard.today.byWorkspace.find(w => w.workspace === 'other-project')!;
-      expect(myProject.requests).toBe(2);
+      expect(myProject.modelTurns).toBe(2);
       expect(myProject.sessionCount).toBe(1);
       expect(myProject.totalCost).toBeGreaterThan(0);
-      expect(otherProject.requests).toBe(1);
+      expect(otherProject.modelTurns).toBe(1);
       expect(otherProject.sessionCount).toBe(1);
     });
 
@@ -315,7 +315,7 @@ describe('Aggregator', () => {
 
       const unknown = dashboard.today.byWorkspace.find(w => w.workspace === 'Unknown');
       expect(unknown).toBeDefined();
-      expect(unknown!.requests).toBe(1);
+      expect(unknown!.modelTurns).toBe(1);
     });
 
     it('returns empty byWorkspace when no sessionWorkspaces provided', () => {

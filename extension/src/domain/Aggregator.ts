@@ -1,6 +1,7 @@
 import type { Span, ModelCost, PeriodCost, DailyBucket, SessionInfo, DashboardData, SessionDetailData, TurnCost, ModelDetailBreakdown, SpanDetail, WorkspaceCost } from './models.js';
 import { CostCalculator } from './CostCalculator.js';
 import { isIgnoredAgent } from './filters.js';
+import { isSubagentSessionId } from './sessionIds.js';
 
 /**
  * Aggregator groups spans into time-bucketed and model-bucketed cost summaries.
@@ -91,8 +92,11 @@ export class Aggregator {
       cacheWriteTokens: number;
     }>();
 
-    // Workspace accumulator: workspace → { totalCost, requests, sessionIds }
-    const byWs = new Map<string, { totalCost: number; requests: number; sessionIds: Set<string> }>();
+    // Workspace accumulator: workspace → { requests, sessionIds, per-model token totals }.
+    // Costs are derived once from the aggregated per-model token totals (below) so
+    // workspace totals use the exact same rounding path as the per-model totals.
+    type WsTokens = { inputTokens: number; outputTokens: number; cachedTokens: number; cacheWriteTokens: number };
+    const byWs = new Map<string, { requests: number; sessionIds: Set<string>; byModel: Map<string, WsTokens> }>();
 
     for (const span of spans) {
       const model = span.responseModel ?? span.requestModel ?? 'unknown';
@@ -106,13 +110,19 @@ export class Aggregator {
       existing.cacheWriteTokens += span.cacheWriteTokens;
       byModel.set(model, existing);
 
-      // Accumulate per-workspace if mapping provided
+      // Accumulate per-workspace token totals if mapping provided
       if (sessionWorkspaces) {
         const sessionId = span.chatSessionId ?? span.conversationId;
         const ws = (sessionId ? sessionWorkspaces.get(sessionId) : null) ?? 'Unknown';
-        const wsEntry = byWs.get(ws) ?? { totalCost: 0, requests: 0, sessionIds: new Set() };
+        const wsEntry = byWs.get(ws) ?? { requests: 0, sessionIds: new Set<string>(), byModel: new Map<string, WsTokens>() };
         wsEntry.requests++;
         if (sessionId) { wsEntry.sessionIds.add(sessionId); }
+        const wsModel = wsEntry.byModel.get(model) ?? { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0 };
+        wsModel.inputTokens += span.inputTokens;
+        wsModel.outputTokens += span.outputTokens;
+        wsModel.cachedTokens += span.cachedTokens;
+        wsModel.cacheWriteTokens += span.cacheWriteTokens;
+        wsEntry.byModel.set(model, wsModel);
         byWs.set(ws, wsEntry);
       }
     }
@@ -141,6 +151,7 @@ export class Aggregator {
         outputCost: cost?.outputCost ?? 0,
         totalCost: cost?.totalCost ?? 0,
         estimated: cost?.estimated ?? false,
+        unpriced: cost === null,
       };
 
       modelCosts.push(modelCost);
@@ -150,25 +161,22 @@ export class Aggregator {
       totalCached += data.cachedTokens;
     }
 
-    // Now compute per-span cost for workspace totals
-    if (sessionWorkspaces) {
-      for (const span of spans) {
-        const sessionId = span.chatSessionId ?? span.conversationId;
-        const ws = (sessionId ? sessionWorkspaces.get(sessionId) : null) ?? 'Unknown';
-        const model = span.responseModel ?? span.requestModel ?? 'unknown';
-        const cost = this.calculator.calculate(model, span.inputTokens, span.outputTokens, span.cachedTokens, span.cacheWriteTokens);
-        const wsEntry = byWs.get(ws)!;
-        wsEntry.totalCost += cost?.totalCost ?? 0;
-      }
-    }
-
-    // Build workspace costs
+    // Build workspace costs from the aggregated per-model token totals so they
+    // are consistent with the per-model costs above (one rounding path, and one
+    // calculate() call per workspace+model group rather than per span).
     const workspaceCosts: WorkspaceCost[] = [];
     for (const [workspace, data] of byWs) {
+      let wsTotal = 0;
+      for (const [model, tokens] of data.byModel) {
+        const cost = this.calculator.calculate(
+          model, tokens.inputTokens, tokens.outputTokens, tokens.cachedTokens, tokens.cacheWriteTokens
+        );
+        wsTotal += cost?.totalCost ?? 0;
+      }
       workspaceCosts.push({
         workspace,
-        totalCost: data.totalCost,
-        requests: data.requests,
+        totalCost: wsTotal,
+        modelTurns: data.requests,
         sessionCount: data.sessionIds.size,
       });
     }
@@ -442,7 +450,7 @@ function getCanonicalSessionId(span: Span, _conversationToChat: Map<string, stri
 
 /** Returns true if the session ID looks like a tool-call ID (subagent invocation). */
 function isToolCallSessionId(id: string): boolean {
-  return id.startsWith('toolu_') || id.startsWith('call_');
+  return isSubagentSessionId(id);
 }
 
 function buildConversationToChatMap(spans: Span[]): Map<string, string> {

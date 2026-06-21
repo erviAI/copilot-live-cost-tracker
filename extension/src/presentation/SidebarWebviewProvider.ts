@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { randomBytes } from 'crypto';
 import type { DashboardData, BudgetState, SessionDetailData } from '../domain/models.js';
 import { getDisplayCurrency } from '../config.js';
 
@@ -6,13 +7,14 @@ import { getDisplayCurrency } from '../config.js';
  * SidebarWebviewProvider renders the cost dashboard in the activity bar sidebar.
  * Communicates with the webview via postMessage for updates.
  */
-export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
+export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   public static readonly viewType = 'copilotCostTracker.dashboard';
 
   private view: vscode.WebviewView | undefined;
   private pendingData: DashboardData | null = null;
   private pendingBudgetState: BudgetState | null = null;
   private sessionDetailHandler: ((sessionId: string) => Promise<SessionDetailData | null>) | null = null;
+  private readonly disposables: vscode.Disposable[] = [];
 
   constructor(private readonly extensionUri: vscode.Uri) {}
 
@@ -33,33 +35,50 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       localResourceRoots: [this.extensionUri],
     };
 
-    webviewView.webview.html = this.getHtml(webviewView.webview);
+    webviewView.webview.html = this.getHtml();
 
     // Handle messages from webview
-    webviewView.webview.onDidReceiveMessage(async (message) => {
-      switch (message.command) {
-        case 'refresh':
-          vscode.commands.executeCommand('copilotCostTracker.refresh');
-          break;
-        case 'openSettings':
-          vscode.commands.executeCommand('copilotCostTracker.openSettings');
-          break;
-        case 'sessionDetail':
-          if (this.sessionDetailHandler && message.sessionId) {
-            const detail = await this.sessionDetailHandler(message.sessionId);
-            webviewView.webview.postMessage({
-              type: 'sessionDetail',
-              sessionId: message.sessionId,
-              data: detail,
-            });
-          }
-          break;
-      }
-    });
+    this.disposables.push(
+      webviewView.webview.onDidReceiveMessage((message: unknown) => this.handleMessage(message, webviewView))
+    );
+
+    // Drop our reference when the view is disposed so we don't post to a dead webview.
+    this.disposables.push(
+      webviewView.onDidDispose(() => {
+        if (this.view === webviewView) this.view = undefined;
+      })
+    );
 
     // Send pending data if available
     if (this.pendingData) {
       this.updateData(this.pendingData, this.pendingBudgetState);
+    }
+  }
+
+  /** Handle a (semi-trusted) message posted from the webview. */
+  private async handleMessage(message: unknown, webviewView: vscode.WebviewView): Promise<void> {
+    if (!message || typeof message !== 'object') return;
+    const command = (message as { command?: unknown }).command;
+    if (typeof command !== 'string') return;
+
+    switch (command) {
+      case 'refresh':
+        vscode.commands.executeCommand('copilotCostTracker.refresh');
+        break;
+      case 'openSettings':
+        vscode.commands.executeCommand('copilotCostTracker.openSettings');
+        break;
+      case 'enableOtel':
+        vscode.commands.executeCommand('copilotCostTracker.enableOtel');
+        break;
+      case 'sessionDetail': {
+        const sessionId = (message as { sessionId?: unknown }).sessionId;
+        if (this.sessionDetailHandler && typeof sessionId === 'string' && sessionId.length > 0) {
+          const detail = await this.sessionDetailHandler(sessionId);
+          webviewView.webview.postMessage({ type: 'sessionDetail', sessionId, data: detail });
+        }
+        break;
+      }
     }
   }
 
@@ -79,7 +98,14 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private getHtml(webview: vscode.Webview): string {
+  dispose(): void {
+    for (const d of this.disposables.splice(0)) {
+      d.dispose();
+    }
+    this.view = undefined;
+  }
+
+  private getHtml(): string {
     const nonce = getNonce();
 
     return /*html*/ `<!DOCTYPE html>
@@ -87,7 +113,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}' 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
   <style nonce="${nonce}">
     :root {
       --card-bg: var(--vscode-editor-background);
@@ -172,6 +198,23 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       border: 1px solid var(--vscode-editorWarning-foreground, #cca700);
       opacity: 0.85;
     }
+    .unpriced-badge {
+      margin-left: 5px;
+      padding: 0 4px;
+      border-radius: 3px;
+      font-size: 0.8em;
+      color: var(--vscode-descriptionForeground);
+      border: 1px solid var(--vscode-descriptionForeground);
+      opacity: 0.85;
+    }
+    /* Utility classes (avoid inline style attributes so CSP can forbid 'unsafe-inline') */
+    .detail-msg { padding: 4px; color: var(--text-muted); }
+    .session-title-row { margin-bottom: 6px; font-weight: 600; color: var(--vscode-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .session-workspace { margin-bottom: 6px; font-size: 0.8em; color: var(--text-secondary); }
+    .debug-block { margin-top: 8px; padding: 6px 8px; border: 1px dashed var(--vscode-panel-border, #555); border-radius: 4px; font-size: 11px; color: var(--text-muted); }
+    .debug-title { font-weight: 600; margin-bottom: 4px; }
+    .mono { font-family: var(--vscode-editor-font-family); }
+    .indent-sub { padding-left: 2.4em; }
 
     .chart-svg {
       display: block;
@@ -433,6 +476,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     .warning-banner-link {
       display: inline-block;
       margin-top: 10px;
+      margin-right: 14px;
       color: var(--accent);
       cursor: pointer;
       text-decoration: underline;
@@ -578,7 +622,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           delete sessionDetailCache[expandedSessionId];
           var detailEl = document.getElementById('detail-' + expandedSessionId);
           if (detailEl) {
-            detailEl.innerHTML = '<div style="padding:4px;color:var(--text-muted)">Refreshing...</div>';
+            detailEl.innerHTML = '<div class="detail-msg">Refreshing...</div>';
           }
           vscode.postMessage({ command: 'sessionDetail', sessionId: expandedSessionId });
         }
@@ -588,10 +632,13 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     function renderWarningBanner(message, isMinor) {
       const title = isMinor ? 'Using Fallback Data Source' : 'Data Source Unavailable';
       const icon = isMinor ? '\u26a0\ufe0f' : '\u274c';
+      const otelLink = isMinor ? '' :
+        '<span class="warning-banner-link" data-action="enableOtel">Enable OpenTelemetry Tracing</span>';
       return '<div class="warning-banner">' +
         '<div class="warning-banner-title">' + icon + ' ' + escapeHtml(title) + '</div>' +
         '<div class="warning-banner-message">' + escapeHtml(message || '') + '</div>' +
-        '<span class="warning-banner-link" onclick="vscode.postMessage({ command: \\'openSettings\\' })">Open Extension Settings</span>' +
+        otelLink +
+        '<span class="warning-banner-link" data-action="openSettings">Open Extension Settings</span>' +
         '</div>';
     }
 
@@ -616,16 +663,16 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       const spanCount = period.spanCount != null ? period.spanCount : 0;
       const title = period.title || (sid ? '(untitled)' : '(no active session)');
       const titleRow =
-        '<div class="session-title-row" style="margin-bottom:6px;font-weight:600;color:var(--vscode-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(period.title || '') + '">' +
+        '<div class="session-title-row" title="' + escapeHtml(period.title || '') + '">' +
           escapeHtml(title) +
         '</div>';
       const workspaceRow = period.workspace
-        ? '<div style="margin-bottom:6px;font-size:0.8em;color:var(--text-secondary);">' + escapeHtml(period.workspace) + '</div>'
+        ? '<div class="session-workspace">' + escapeHtml(period.workspace) + '</div>'
         : '';
       const debugRows =
-        '<div class="debug-block" style="margin-top:8px;padding:6px 8px;border:1px dashed var(--vscode-panel-border, #555);border-radius:4px;font-size:11px;color:var(--text-muted);">' +
-          '<div style="font-weight:600;margin-bottom:4px;">Debug</div>' +
-          statRow('Session ID', '<span title="' + escapeHtml(sid || '') + '" style="font-family:var(--vscode-editor-font-family);">' + escapeHtml(sidShort) + '</span>') +
+        '<div class="debug-block">' +
+          '<div class="debug-title">Debug</div>' +
+          statRow('Session ID', '<span title="' + escapeHtml(sid || '') + '" class="mono">' + escapeHtml(sidShort) + '</span>') +
           statRow('Agent', escapeHtml(agent)) +
           statRow('Matched Spans', spanCount) +
           statRow('Latest Activity', latest) +
@@ -634,9 +681,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     function escapeHtml(s) {
-      return String(s).replace(/[&<>"']/g, function (c) {
-        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-      });
+      const div = document.createElement('div');
+      div.textContent = String(s == null ? '' : s);
+      return div.innerHTML;
     }
 
     function renderCollapsibleModel(id, models) {
@@ -644,8 +691,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       return '<details class="subsection" id="' + id + '"><summary>By Model (' + models.length + ')</summary>' +
         '<div class="model-table">' +
         models.map(function(m) {
-          return '<div class="model-row"><span class="model-name">' + shortModel(m.model) +
+          return '<div class="model-row"><span class="model-name">' + escapeHtml(shortModel(m.model)) +
             (m.estimated ? '<span class="est-badge" title="Estimated pricing — model not yet in the official table">~est</span>' : '') +
+            (m.unpriced ? '<span class="unpriced-badge" title="No pricing found for this model — cost shown as $0 but is unknown">unpriced</span>' : '') +
             '</span><span class="model-cost"' + costTitle(m.totalCost) + '>' + formatCost(m.totalCost) + '</span></div>';
         }).join('') + '</div></details>';
     }
@@ -658,20 +706,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           return '<div class="workspace-row"><span class="workspace-name">' + escapeHtml(w.workspace) +
             '</span><span class="workspace-cost"' + costTitle(w.totalCost) + '>' + formatCost(w.totalCost) + '</span></div>';
         }).join('') + '</div></details>';
-    }
-
-    function renderWeekCard(period) {
-      return '<div class="cost-large cost-green"' + costTitle(period.totalCost) + '>' + formatCost(period.totalCost) + '</div>' +
-        statRow('Model Turns', period.modelTurns);
-    }
-
-    function renderModelTable(models) {
-      if (!models || models.length === 0) return '<div class="empty-state">No model data</div>';
-      return '<div class="model-table">' +
-        models.map(m =>
-          '<div class="model-row"><span class="model-name">' + shortModel(m.model) +
-          '</span><span class="model-cost"' + costTitle(m.totalCost) + '>' + formatCost(m.totalCost) + '</span></div>'
-        ).join('') + '</div>';
     }
 
     function renderChart(days) {
@@ -724,7 +758,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           '<div class="session-info"><div class="session-title">' +
           '<span class="chevron">&#9654;</span> ' + escapeHtml(s.title) + '</div><div class="session-meta">' +
           (s.workspace ? '<span class="session-repo">' + escapeHtml(s.workspace) + '</span> \\u00b7 ' : '') +
-          (s.model ? shortModel(s.model) + ' \\u00b7 ' : '') + s.modelTurns + ' requests \\u00b7 ' + timeAgo(s.endedAt) +
+          (s.model ? escapeHtml(shortModel(s.model)) + ' \\u00b7 ' : '') + s.modelTurns + ' requests \\u00b7 ' + timeAgo(s.endedAt) +
           '</div></div><span class="session-cost"' + costTitle(s.totalCost) + '>' + formatCost(s.totalCost) + '</span></div>' +
           '<div class="session-detail" id="detail-' + escapeHtml(s.sessionId) + '"></div></li>'
         ).join('') + '</ul>';
@@ -732,6 +766,20 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
     // Event delegation for session header clicks (CSP blocks inline onclick)
     document.addEventListener('click', function(e) {
+      // Warning banner "Open Extension Settings" link
+      var settingsLink = e.target.closest('[data-action="openSettings"]');
+      if (settingsLink) {
+        vscode.postMessage({ command: 'openSettings' });
+        return;
+      }
+
+      // Warning banner "Enable OpenTelemetry Tracing" link
+      var otelLink = e.target.closest('[data-action="enableOtel"]');
+      if (otelLink) {
+        vscode.postMessage({ command: 'enableOtel' });
+        return;
+      }
+
       // Turns section title expand/collapse
       var turnsTitle = e.target.closest('.turns-section-title');
       if (turnsTitle) {
@@ -826,7 +874,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         if (!sessionDetailCache[sessionId]) {
           var detailEl = document.getElementById('detail-' + sessionId);
           if (detailEl) {
-            detailEl.innerHTML = '<div style="padding:4px;color:var(--text-muted)">Loading...</div>';
+            detailEl.innerHTML = '<div class="detail-msg">Loading...</div>';
           }
           vscode.postMessage({ command: 'sessionDetail', sessionId: sessionId });
         } else {
@@ -847,7 +895,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       html += '<div class="detail-section"><div class="detail-section-title">LLM Requests by Model (' + data.totalLlmCalls + ' total)</div>';
       html += '<table class="detail-table"><tr><th>Model</th><th class="num">Requests</th><th class="num">Cost</th><th class="num">In</th><th class="num">Out</th><th class="num">Cache R</th><th class="num">Cache W</th><th class="num">Hit%</th><th class="num">tok/s</th></tr>';
       data.byModel.forEach(function(m) {
-        html += '<tr><td>' + shortModel(m.model) + '</td>' +
+        html += '<tr><td>' + escapeHtml(shortModel(m.model)) + '</td>' +
           '<td class="num">' + m.calls + '</td>' +
           '<td class="num">' + formatCost(m.totalCost) + '</td>' +
           '<td class="num">' + formatTokens(m.inputTokens) + '</td>' +
@@ -911,7 +959,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
               ].filter(Boolean);
               var spTipHtml = spTipLines.map(function(l) { return '<div>' + escapeHtml(l) + '</div>'; }).join('');
               html += '<tr class="span-row has-tip" data-parent="' + turnId + '">' +
-                '<td>' + spAgent + shortModel(sp.model) + '<span class="tip">' + spTipHtml + '</span></td>' +
+                '<td>' + spAgent + escapeHtml(shortModel(sp.model)) + '<span class="tip">' + spTipHtml + '</span></td>' +
                 '<td class="num">' + (spIdx + 1) + '</td>' +
                 '<td class="num">' + formatCost(sp.totalCost) + '</td>' +
                 '<td class="num">' + formatTokens(sp.inputTokens) + '</td>' +
@@ -961,7 +1009,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
                   ].filter(Boolean);
                   var cspTipHtml = cspTipLines.map(function(l) { return '<div>' + escapeHtml(l) + '</div>'; }).join('');
                   html += '<tr class="span-row subagent-span-row has-tip" data-parent="' + childId + '">' +
-                    '<td style="padding-left:2.4em">' + cspAgent + shortModel(csp.model) + '<span class="tip">' + cspTipHtml + '</span></td>' +
+                    '<td class="indent-sub">' + cspAgent + escapeHtml(shortModel(csp.model)) + '<span class="tip">' + cspTipHtml + '</span></td>' +
                     '<td class="num">' + (cspIdx + 1) + '</td>' +
                     '<td class="num">' + formatCost(csp.totalCost) + '</td>' +
                     '<td class="num">' + formatTokens(csp.inputTokens) + '</td>' +
@@ -1058,12 +1106,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       const s = Math.round((ms % 60000) / 1000);
       return m + 'm ' + s + 's';
     }
-
-    function escapeHtml(str) {
-      const div = document.createElement('div');
-      div.textContent = str;
-      return div.innerHTML;
-    }
   </script>
 </body>
 </html>`;
@@ -1071,10 +1113,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 }
 
 function getNonce(): string {
-  let text = '';
-  const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  for (let i = 0; i < 32; i++) {
-    text += possible.charAt(Math.floor(Math.random() * possible.length));
-  }
-  return text;
+  // Use a cryptographically secure RNG so the CSP nonce is unpredictable.
+  return randomBytes(16).toString('base64');
 }

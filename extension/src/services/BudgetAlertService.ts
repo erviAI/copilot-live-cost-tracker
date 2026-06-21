@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { DashboardData, BudgetThresholds, BudgetState } from '../domain/models.js';
+import type { INotifier } from './INotifier.js';
 
 type AlertLevel = 'ok' | 'warning' | 'limit';
 
@@ -19,7 +20,10 @@ export class BudgetAlertService implements vscode.Disposable {
   private lastState: BudgetState = { sessionLevel: 'ok', dailyLevel: 'ok', weeklyLevel: 'ok' };
   private firedAlerts = new Set<string>();
 
-  constructor(private readonly getThresholds: () => BudgetThresholds) {}
+  constructor(
+    private readonly getThresholds: () => BudgetThresholds,
+    private readonly notifier: INotifier
+  ) {}
 
   /** Evaluate dashboard data against budget thresholds */
   evaluate(data: DashboardData): BudgetState {
@@ -90,11 +94,11 @@ export class BudgetAlertService implements vscode.Disposable {
     const scopeLabel = scope.charAt(0).toUpperCase() + scope.slice(1);
 
     if (level === 'warning') {
-      vscode.window.showWarningMessage(
+      this.notifier.warn(
         `Copilot Cost: ${scopeLabel} spend ${costStr} has reached the warning threshold ($${threshold.warning}).`
       );
     } else if (level === 'limit') {
-      vscode.window.showErrorMessage(
+      this.notifier.error(
         `Copilot Cost: ${scopeLabel} spend ${costStr} has exceeded the limit ($${threshold.limit})!`
       );
     }

@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
-import type { ISpanRepository, ISessionTitleResolver } from '../data/interfaces.js';
-import type { AgentTracesRepository } from '../data/AgentTracesRepository.js';
-import type { Span, DashboardData, SessionDetailData, DataSourceStatus } from '../domain/models.js';
+import type { ISpanRepository, ISessionTitleResolver, ITurnLabelProvider } from '../data/interfaces.js';
+import type { Span, DashboardData, SessionDetailData, DataSourceStatus, PeriodCost } from '../domain/models.js';
 import type { CostDataSource } from '../config.js';
 import type { CostHistoryService } from './CostHistoryService.js';
 import { Aggregator } from '../domain/Aggregator.js';
 import { isIgnoredAgent } from '../domain/filters.js';
+import { isSubagentSessionId } from '../domain/sessionIds.js';
 import { logger } from '../logger.js';
 
 /**
@@ -22,6 +22,7 @@ export class CostTrackingService implements vscode.Disposable {
   private lastData: DashboardData | null = null;
   private currentSessionId: string | null = null;
   private disposed = false;
+  private polling = false;
   private pollCount = 0;
   private historyService: CostHistoryService | null = null;
   private historyScrapeInterval = 30;
@@ -32,12 +33,18 @@ export class CostTrackingService implements vscode.Disposable {
     private readonly aggregator: Aggregator,
     private readonly getPollingInterval: () => number,
     private readonly backfillRepo: ISpanRepository | null = null,
-    private readonly getCostDataSource: () => CostDataSource = () => 'agent-traces-only'
+    private readonly getCostDataSource: () => CostDataSource = () => 'agent-traces-only',
+    private readonly turnLabelProvider: ITurnLabelProvider | null = null
   ) {}
 
   /** Attach a history service for periodic persistence */
   setHistoryService(service: CostHistoryService, scrapeInterval: number): void {
     this.historyService = service;
+    this.historyScrapeInterval = scrapeInterval;
+  }
+
+  /** Update how often (in poll cycles) data is scraped to history. */
+  setScrapeInterval(scrapeInterval: number): void {
     this.historyScrapeInterval = scrapeInterval;
   }
 
@@ -72,11 +79,10 @@ export class CostTrackingService implements vscode.Disposable {
     try {
       const spans = await this.spanRepo.getSpansForSession(sessionId);
       if (spans.length === 0) return null;
-      // Fetch turn labels from agent-traces.db (keyed by traceId)
+      // Fetch turn labels from agent-traces.db (keyed by traceId) when a provider is available.
       let turnLabels: Map<string, string> | undefined;
-      const tracesRepo = this.spanRepo as AgentTracesRepository;
-      if (typeof tracesRepo.getTurnLabels === 'function') {
-        try { turnLabels = await tracesRepo.getTurnLabels(sessionId); } catch { /* ignore */ }
+      if (this.turnLabelProvider) {
+        try { turnLabels = await this.turnLabelProvider.getTurnLabels(sessionId); } catch { /* ignore */ }
       }
       return this.aggregator.aggregateSessionDetail(sessionId, spans, turnLabels);
     } catch (err) {
@@ -94,6 +100,8 @@ export class CostTrackingService implements vscode.Disposable {
 
   private async poll(): Promise<void> {
     if (this.disposed) return;
+    if (this.polling) return; // Skip if a previous poll is still in flight
+    this.polling = true;
 
     try {
       // Get spans for the past 7 days (enough for all dashboard sections)
@@ -182,6 +190,8 @@ export class CostTrackingService implements vscode.Disposable {
     } catch (err) {
       // Log but don't crash — the extension should be resilient
       logger.error('Poll error:', err);
+    } finally {
+      this.polling = false;
     }
   }
 
@@ -211,10 +221,10 @@ export class CostTrackingService implements vscode.Disposable {
 
     // Subagent spans have chatSessionId set to a tool-call ID (e.g. "toolu_..." or "call_...").
     // Resolve to the real parent session via trace_id correlation.
-    if (latest.chatSessionId && (latest.chatSessionId.startsWith('toolu_') || latest.chatSessionId.startsWith('call_'))) {
+    if (isSubagentSessionId(latest.chatSessionId)) {
       // Find another span in the same trace with a real session ID
       const parentSpan = candidates.find(
-        s => s.traceId === latest.traceId && s.chatSessionId && !s.chatSessionId.startsWith('toolu_') && !s.chatSessionId.startsWith('call_')
+        s => s.traceId === latest.traceId && s.chatSessionId && !isSubagentSessionId(s.chatSessionId)
       );
       if (parentSpan) return parentSpan.chatSessionId;
     }
@@ -222,7 +232,7 @@ export class CostTrackingService implements vscode.Disposable {
   }
 
   private emptyDashboard(dataSourceStatus?: DataSourceStatus): DashboardData {
-    const emptyPeriod = { totalCost: 0, requests: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, byModel: [], byWorkspace: [] };
+    const emptyPeriod: PeriodCost = { totalCost: 0, modelTurns: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, byModel: [], byWorkspace: [] };
     return {
       today: emptyPeriod,
       thisWeek: emptyPeriod,
@@ -235,7 +245,7 @@ export class CostTrackingService implements vscode.Disposable {
   }
 
   private getUnavailableGuidance(): string {
-    return `Cost tracking requires agent-traces.db which is created by VS Code Copilot Chat.\n\nIf the file doesn't exist:\n1. Use Copilot Chat at least once\n2. Restart VS Code\n\nExpected path: %APPDATA%/Code/User/globalStorage/github.copilot-chat/agent-traces.db`;
+    return `Cost tracking reads agent-traces.db, which Copilot Chat only writes when OpenTelemetry tracing is enabled.\n\nTo fix this:\n1. Enable the setting "github.copilot.chat.otel.dbSpanExporter.enabled"\n2. Run a Copilot Chat session\n3. Restart VS Code if the file still isn't created\n\nExpected path: %APPDATA%/Code/User/globalStorage/github.copilot-chat/agent-traces.db`;
   }
 
   /** Update polling interval when settings change */

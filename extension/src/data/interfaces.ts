@@ -1,4 +1,4 @@
-import type { Span, SessionInfo } from '../domain/models.js';
+import type { Span } from '../domain/models.js';
 
 /**
  * Interface for accessing token/span data from agent-traces.db.
@@ -22,30 +22,13 @@ export interface ISpanRepository {
 }
 
 /**
- * Interface for accessing session metadata from session-store.db.
+ * Optional capability for span sources that can resolve per-turn labels.
+ * Kept separate from {@link ISpanRepository} so implementations that cannot
+ * provide turn labels (e.g. the debug-logs fallback) are not forced to.
  */
-export interface ISessionMetadataRepository {
-  /** Get session metadata (summary, agent, cwd, timestamps) */
-  getSessionMetadata(sessionId: string): Promise<SessionMetadata | null>;
-
-  /** Get all session metadata for recent sessions */
-  getRecentSessions(limit: number): Promise<SessionMetadata[]>;
-
-  /** Check if the database is accessible */
-  isAvailable(): Promise<boolean>;
-
-  dispose(): void;
-}
-
-export interface SessionMetadata {
-  id: string;
-  summary: string | null;
-  agentName: string | null;
-  createdAt: number;
-  updatedAt: number;
-  cwd: string | null;
-  repository: string | null;
-  branch: string | null;
+export interface ITurnLabelProvider {
+  /** Resolve trace-id → human-readable turn label for a session. */
+  getTurnLabels(sessionId: string): Promise<Map<string, string>>;
 }
 
 /**

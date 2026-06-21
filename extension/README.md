@@ -96,6 +96,9 @@ All settings are under `copilotCostTracker.*` in VS Code Settings:
 | `costDataSource` | `agent-traces-only` | Data source strategy |
 | `history.enabled` | `true` | Persist daily aggregates to disk |
 | `history.retentionDays` | `90` | Days to keep history files |
+| `history.scrapeInterval` | `30` | Poll cycles between history writes (30 cycles ≈ 5 min at the default 10s polling) |
+| `displayCurrency.code` | `""` | ISO currency code to show on hover (e.g. `NOK`, `EUR`). Leave empty to disable |
+| `displayCurrency.rate` | `1` | Exchange rate: 1 USD = X units of your display currency |
 
 ## Data Sources
 

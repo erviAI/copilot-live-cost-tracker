@@ -15,10 +15,15 @@ export class StateRepository implements ISessionTitleResolver {
   private readonly workspaceStorageRoot: string | null;
   private readonly sessionStoreDbPath: string | null;
 
-  constructor(workspaceStorageRoot: string | null, appDataPath: string | null) {
+  /**
+   * @param workspaceStorageRoot Absolute path to `User/workspaceStorage`.
+   * @param userDir Absolute path to VS Code's `User` directory (used to locate
+   *   `session-store.db`). Resolved rather than assuming the `Code` product folder.
+   */
+  constructor(workspaceStorageRoot: string | null, userDir: string | null) {
     this.workspaceStorageRoot = workspaceStorageRoot;
-    this.sessionStoreDbPath = appDataPath
-      ? path.join(appDataPath, 'Code', 'User', 'globalStorage', 'github.copilot-chat', 'session-store.db')
+    this.sessionStoreDbPath = userDir
+      ? path.join(userDir, 'globalStorage', 'github.copilot-chat', 'session-store.db')
       : null;
   }
 

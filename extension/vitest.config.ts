@@ -5,6 +5,13 @@ export default defineConfig({
   test: {
     include: ['test/**/*.test.ts'],
     globals: true,
+    coverage: {
+      provider: 'v8',
+      reportsDirectory: './coverage',
+      reporter: ['text', 'html', 'lcov'],
+      include: ['src/**/*.ts'],
+      exclude: ['src/**/*.d.ts', 'src/presentation/SidebarWebviewProvider.ts'],
+    },
   },
   resolve: {
     alias: {
