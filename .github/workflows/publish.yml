@@ -67,7 +67,7 @@ jobs:
         run: npx @vscode/vsce publish --packagePath copilot-cost-tracker-${{ matrix.target }}.vsix
 
       - name: Upload VSIX artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: copilot-cost-tracker-${{ matrix.target }}
           path: extension/copilot-cost-tracker-${{ matrix.target }}.vsix
