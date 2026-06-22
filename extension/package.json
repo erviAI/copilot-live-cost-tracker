@@ -4,12 +4,21 @@
   "description": "Track GitHub Copilot token usage and costs in real-time with a sidebar dashboard and status bar.",
   "version": "0.4.0",
   "publisher": "ervi",
+  "author": "erviAI",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/erviAI/cost-research"
   },
+  "bugs": {
+    "url": "https://github.com/erviAI/cost-research/issues"
+  },
+  "homepage": "https://github.com/erviAI/cost-research#readme",
   "icon": "resources/icon.png",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.100.0"
   },
@@ -67,8 +76,22 @@
         "command": "copilotCostTracker.openSettings",
         "title": "Open Settings",
         "category": "Copilot Cost"
+      },
+      {
+        "command": "copilotCostTracker.enableOtel",
+        "title": "Enable OpenTelemetry Tracing",
+        "category": "Copilot Cost"
       }
     ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "copilotCostTracker.refresh",
+          "when": "view == copilotCostTracker.dashboard",
+          "group": "navigation"
+        }
+      ]
+    },
     "configuration": {
       "title": "Copilot Cost Tracker",
       "properties": {
@@ -181,19 +204,27 @@
     "vscode:prepublish": "npm run build",
     "build": "node esbuild.config.mjs",
     "watch": "node esbuild.config.mjs --watch",
-    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "package": "vsce package"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^20.14.0",
     "@types/vscode": "^1.100.0",
+    "@vitest/coverage-v8": "^4.1.9",
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.1",
     "eslint": "^10.5.0",
+    "prettier": "^3.8.4",
     "typescript": "^6.0.3",
+    "typescript-eslint": "^8.61.1",
     "vitest": "^4.1.9"
   },
   "dependencies": {

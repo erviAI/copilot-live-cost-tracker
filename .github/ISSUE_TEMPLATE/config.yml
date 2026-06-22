@@ -1,0 +1,6 @@
+# Configure the issue chooser shown on "New issue".
+blank_issues_enabled: false
+contact_links:
+  - name: Question or discussion
+    url: https://github.com/erviAI/cost-research/discussions
+    about: Ask questions and discuss ideas with the community.

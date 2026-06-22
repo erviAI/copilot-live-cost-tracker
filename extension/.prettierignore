@@ -1,0 +1,6 @@
+dist
+coverage
+node_modules
+*.vsix
+resources
+CHANGELOG.md

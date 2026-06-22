@@ -42,21 +42,29 @@ export class CostCalculator {
     cachedTokens: number,
     cacheWriteTokens: number
   ): CostBreakdown {
+    // Token counts originate from untrusted DB rows; coerce any NaN/negative/
+    // non-finite values to a safe non-negative number so a single bad row
+    // cannot poison the total with NaN.
+    const input = sanitizeTokens(inputTokens);
+    const output = sanitizeTokens(outputTokens);
+    const cached = sanitizeTokens(cachedTokens);
+    const cacheWrite = sanitizeTokens(cacheWriteTokens);
+
     // Anthropic models bill input as either cache reads or cache writes — the
     // raw "input" rate is never charged on its own. We detect Anthropic-style
     // pricing by the presence of a cacheWrite rate and zero out fresh input
     // cost so it neither shows in the breakdown nor contributes to the total.
     const isCacheOnlyInput = pricing.cacheWrite !== undefined;
 
-    const freshInputTokens = Math.max(0, inputTokens - cachedTokens);
+    const freshInputTokens = Math.max(0, input - cached);
     const freshInputCost = isCacheOnlyInput
       ? 0
       : (freshInputTokens / 1_000_000) * pricing.input;
-    const cacheReadCost = (cachedTokens / 1_000_000) * pricing.cached;
-    const cacheWriteCost = pricing.cacheWrite
-      ? (cacheWriteTokens / 1_000_000) * pricing.cacheWrite
+    const cacheReadCost = (cached / 1_000_000) * pricing.cached;
+    const cacheWriteCost = pricing.cacheWrite !== undefined
+      ? (cacheWrite / 1_000_000) * pricing.cacheWrite
       : 0;
-    const outputCost = (outputTokens / 1_000_000) * pricing.output;
+    const outputCost = (output / 1_000_000) * pricing.output;
 
     return {
       freshInputCost,
@@ -76,4 +84,9 @@ export interface CostBreakdown {
   totalCost: number;
   /** True when these costs were derived from estimated (family-inferred) pricing. */
   estimated?: boolean;
+}
+
+/** Coerce an untrusted token count to a finite, non-negative number. */
+function sanitizeTokens(value: number): number {
+  return Number.isFinite(value) && value > 0 ? value : 0;
 }

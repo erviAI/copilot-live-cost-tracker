@@ -28,6 +28,24 @@ export class PricingEngine {
   }
 
   /**
+   * Replace user pricing overrides at runtime (e.g. when settings change).
+   * Rebuilds from defaults and clears the match cache so subsequent lookups
+   * reflect the new rates.
+   */
+  setOverrides(overrides?: Record<string, ModelPricing>): void {
+    this.pricing.clear();
+    this.matchCache.clear();
+    for (const [key, value] of Object.entries(DEFAULT_PRICING)) {
+      this.pricing.set(key, value);
+    }
+    if (overrides) {
+      for (const [key, value] of Object.entries(overrides)) {
+        this.pricing.set(key, value);
+      }
+    }
+  }
+
+  /**
    * Look up pricing for a model identifier.
    * Handles model strings like "claude-opus-4-5-20251101" or "gpt-4.1-2025-04-14".
    * Returns null if no matching pricing is found.

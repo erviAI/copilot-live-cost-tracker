@@ -1,9 +1,9 @@
 import * as path from 'path';
-import type { ISpanRepository } from './interfaces.js';
+import type { ISpanRepository, ITurnLabelProvider } from './interfaces.js';
 import type { Span } from '../domain/models.js';
 import { openDatabase, type Database } from './sqlite.js';
 
-const AGENT_TRACES_RELATIVE = 'Code/User/globalStorage/github.copilot-chat/agent-traces.db';
+const AGENT_TRACES_RELATIVE = 'globalStorage/github.copilot-chat/agent-traces.db';
 
 /** Shared SELECT clause that aliases snake_case DB columns to camelCase Span fields */
 const SPAN_SELECT_SQL = `
@@ -39,12 +39,17 @@ const SPAN_SELECT_SQL = `
  * Reads token/span data from agent-traces.db (OpenTelemetry format).
  * Opens the database read-only; handles WAL via native SQLite.
  */
-export class AgentTracesRepository implements ISpanRepository {
+export class AgentTracesRepository implements ISpanRepository, ITurnLabelProvider {
   private db: Database | null = null;
   private readonly dbPath: string;
 
-  constructor(appDataPath: string) {
-    this.dbPath = path.join(appDataPath, AGENT_TRACES_RELATIVE);
+  /**
+   * @param userDir Absolute path to VS Code's `User` directory
+   *   (e.g. `%APPDATA%/Code/User`). Passing the resolved directory rather than
+   *   assuming the `Code` product folder keeps Insiders/VSCodium working.
+   */
+  constructor(userDir: string) {
+    this.dbPath = path.join(userDir, AGENT_TRACES_RELATIVE);
   }
 
   private async getDb(): Promise<Database> {

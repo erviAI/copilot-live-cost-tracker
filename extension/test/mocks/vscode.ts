@@ -9,6 +9,18 @@
  */
 
 const noop = (): void => {};
+const configurationValues = new Map<string, unknown>();
+
+export function __setMockConfiguration(values: Record<string, unknown>): void {
+  configurationValues.clear();
+  for (const [key, value] of Object.entries(values)) {
+    configurationValues.set(key, value);
+  }
+}
+
+export function __resetMockConfiguration(): void {
+  configurationValues.clear();
+}
 
 const outputChannel = {
   name: 'mock',
@@ -34,7 +46,9 @@ export const window = {
 };
 
 const configuration = {
-  get: <T>(_key: string, defaultValue?: T): T | undefined => defaultValue,
+  get: <T>(key: string, defaultValue?: T): T | undefined => (
+    configurationValues.has(key) ? configurationValues.get(key) as T : defaultValue
+  ),
   has: () => false,
   inspect: () => undefined,
   update: () => Promise.resolve(),

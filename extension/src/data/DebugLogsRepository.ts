@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
 import type { ISpanRepository } from './interfaces.js';
+import { isSafeSessionId } from './identifiers.js';
 import type { Span } from '../domain/models.js';
 
 /**
@@ -24,8 +25,9 @@ export class DebugLogsRepository implements ISpanRepository {
   /** Cache of workspace listing (one-time, refreshed if root mtime changes) */
   private wsListCache: { mtimeMs: number; names: string[] } | null = null;
 
-  constructor(appDataPath: string) {
-    this.workspaceStorageRoot = path.join(appDataPath, 'Code', 'User', 'workspaceStorage');
+  /** @param userDir Absolute path to VS Code's `User` directory. */
+  constructor(userDir: string) {
+    this.workspaceStorageRoot = path.join(userDir, 'workspaceStorage');
   }
 
   async isAvailable(): Promise<boolean> {
@@ -37,6 +39,8 @@ export class DebugLogsRepository implements ISpanRepository {
   }
 
   async getSpansForSession(sessionId: string): Promise<Span[]> {
+    // sessionId is interpolated into a path below; reject anything unsafe.
+    if (!isSafeSessionId(sessionId)) return [];
     // Find the matching main.jsonl across workspaces. Sessions live under a
     // single workspace, but we don't know which — scan all.
     for (const wsName of this.listWorkspaces()) {
@@ -137,8 +141,8 @@ async function parseMainJsonl(file: string, sessionId: string): Promise<Span[]> 
   let idx = 0;
   for await (const line of rl) {
     if (!line) continue;
-    let ev: any;
-    try { ev = JSON.parse(line); } catch { continue; }
+    let ev: DebugLogEvent;
+    try { ev = JSON.parse(line) as DebugLogEvent; } catch { continue; }
     if (ev?.type !== 'llm_request') continue;
     const attrs = ev.attrs ?? {};
     const inputTokens = numberOrZero(attrs.inputTokens);
@@ -175,6 +179,19 @@ async function parseMainJsonl(file: string, sessionId: string): Promise<Span[]> 
     });
   }
   return spans;
+}
+
+interface DebugLogEvent {
+  type?: string;
+  ts?: unknown;
+  dur?: unknown;
+  attrs?: {
+    inputTokens?: unknown;
+    outputTokens?: unknown;
+    cachedTokens?: unknown;
+    model?: unknown;
+    ttft?: unknown;
+  };
 }
 
 function numberOrZero(v: unknown): number {

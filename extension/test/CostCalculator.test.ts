@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CostCalculator, CostBreakdown } from '../src/domain/CostCalculator.js';
+import { CostCalculator } from '../src/domain/CostCalculator.js';
 import { PricingEngine } from '../src/domain/PricingEngine.js';
 
 describe('CostCalculator', () => {

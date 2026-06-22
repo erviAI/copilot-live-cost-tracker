@@ -2,7 +2,7 @@
 
 Track GitHub Copilot token usage and estimated costs in real-time — directly inside VS Code.
 
-![VS Code](https://img.shields.io/badge/VS%20Code-1.100+-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![VS Code](https://img.shields.io/badge/VS%20Code-1.100+-blue) ![License](https://img.shields.io/badge/license-MIT-green) [![CI](https://github.com/erviAI/cost-research/actions/workflows/ci.yml/badge.svg)](https://github.com/erviAI/cost-research/actions/workflows/ci.yml)
 
 ## Features
 
@@ -32,7 +32,8 @@ Track GitHub Copilot token usage and estimated costs in real-time — directly i
 
 ### Privacy & Portability
 
-- Reads only local Copilot agent debug logs from VS Code / VS Code Insiders workspace storage
+- Reads only local Copilot telemetry and debug logs from VS Code's user storage
+- Works across VS Code, VS Code Insiders, VSCodium, and portable installs — the storage location is resolved automatically from the extension's own storage path
 - Cross-platform support: macOS, Windows, and Linux storage paths resolved automatically
 - No data leaves your machine — all processing is 100% local
 
@@ -44,7 +45,7 @@ Track GitHub Copilot token usage and estimated costs in real-time — directly i
 
 ## Requirements
 
-- **VS Code 1.100 or later**, or **VS Code Insiders**
+- **VS Code 1.100 or later** — including Insiders, VSCodium, and portable installs
 - GitHub Copilot Chat extension installed (this is where the usage data comes from)
 
 ## Installation
@@ -70,6 +71,13 @@ Track GitHub Copilot token usage and estimated costs in real-time — directly i
 3. **Use Copilot as normal** — the dashboard updates every 10 seconds (configurable)
 4. **Monitor the status bar** — session and daily cost are always visible at the bottom
 
+### Reading the dashboard
+
+Per-model rows may carry a small badge:
+
+- **estimated** — the model wasn't in the built-in pricing table, so its rate was inferred from a related model family. The cost is approximate.
+- **unpriced** — no pricing could be resolved at all, so the model's tokens are shown but contribute `$0` to totals. Add a [custom pricing override](#custom-pricing-overrides) to price it.
+
 ### Commands
 
 | Command | Description |
@@ -92,14 +100,36 @@ All settings are under `copilotCostTracker.*` in VS Code Settings:
 | `budget.daily.limit` | `$50` | Daily cost red threshold |
 | `budget.weekly.warning` | `$25` | Weekly cost yellow threshold |
 | `budget.weekly.limit` | `$50` | Weekly cost red threshold |
-| `pricingOverrides` | `{}` | Custom model pricing (per 1M tokens) |
-| `costDataSource` | `agent-traces-only` | Data source strategy |
+| `pricingOverrides` | `{}` | Custom model pricing (per 1M tokens) — see example below |
+| `costDataSource` | `agent-traces-only` | Data source strategy: `agent-traces-only` (recommended) or `with-fallback` (use debug logs when `agent-traces.db` is unavailable; cache-write data is then missing) |
 | `history.enabled` | `true` | Persist daily aggregates to disk |
 | `history.retentionDays` | `90` | Days to keep history files |
+| `history.scrapeInterval` | `30` | Poll cycles between history writes (30 cycles ≈ 5 min at the default 10s polling) |
+| `displayCurrency.code` | `""` | ISO currency code to show on hover (e.g. `NOK`, `EUR`). Leave empty to disable |
+| `displayCurrency.rate` | `1` | Exchange rate: 1 USD = X units of your display currency |
+
+Numeric settings are clamped to safe ranges, so an out-of-range value falls back to a sensible default rather than breaking polling.
+
+### Custom pricing overrides
+
+Use `pricingOverrides` to price new or custom models. Keys are model-name patterns; rates are **USD per 1 million tokens**. Entries that don't match this shape are ignored.
+
+```jsonc
+"copilotCostTracker.pricingOverrides": {
+  "my-custom-model": {
+    "input": 3.0,      // required: fresh input tokens
+    "output": 15.0,    // required: output tokens
+    "cached": 0.3,     // required: cache-read tokens
+    "cacheWrite": 3.75 // optional: cache-write tokens
+  }
+}
+```
 
 ## Data Sources
 
-The extension reads from local Copilot databases stored in VS Code's workspace storage:
+The extension reads from local Copilot databases in VS Code's user storage. The
+location is resolved automatically per product flavour and OS (no path is
+hardcoded):
 
 | Source | Data | Notes |
 |--------|------|-------|
@@ -114,22 +144,45 @@ The extension reads from local Copilot databases stored in VS Code's workspace s
 - Pricing for very new or custom models may require manual overrides
 - Cost figures are estimates based on public API pricing — actual billing may differ
 
+## Troubleshooting
+
+**The dashboard says no data is available.**
+Cost tracking reads `agent-traces.db`, which Copilot Chat only writes when its
+OpenTelemetry tracing is enabled. Enable
+`github.copilot.chat.otel.dbSpanExporter.enabled`, run a Copilot Chat session,
+and restart VS Code if the file still isn't created. Until then, you can set
+`copilotCostTracker.costDataSource` to `with-fallback` to estimate from debug
+logs (cache-write data will be missing).
+
+**A model shows as `unpriced` or `estimated`.**
+This is expected for brand-new or custom models. Add a
+[pricing override](#custom-pricing-overrides) to price it accurately.
+
+**Nothing updates / errors in the logs.**
+The extension reads the SQLite databases through a background worker that uses
+your system Node.js. Check the **"Copilot Cost Tracker"** output channel for
+details, then use **Copilot Cost: Refresh Cost Data** to retry.
+
 ## Contributing
 
-Contributions are welcome! Please open an issue or pull request on [GitHub](https://github.com/erviAI/cost-research).
+Contributions are welcome! See [CONTRIBUTING.md](../CONTRIBUTING.md) for the full
+workflow and guidelines.
 
 ```bash
 # Clone and set up
 git clone https://github.com/erviAI/cost-research.git
 cd cost-research/extension
-npm install
+npm ci
 
 # Development
-npm run watch    # Rebuild on change
-npm run test     # Run tests
+npm run watch         # Rebuild on change
+npm run lint          # Lint with ESLint
+npm run typecheck     # Type-check src/ and test/
+npm test              # Run tests
+npm run test:coverage # Run tests with coverage
 
 # Package
-npm run package  # Produces .vsix file
+npm run package       # Produces .vsix file
 ```
 
 ## License

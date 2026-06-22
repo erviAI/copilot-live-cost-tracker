@@ -13,7 +13,7 @@ const buildOptions = {
   format: 'cjs',
   platform: 'node',
   target: 'node20',
-  sourcemap: true,
+  sourcemap: watch,
   minify: !watch,
 };
 

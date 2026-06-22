@@ -43,6 +43,8 @@ export interface ModelCost {
   totalCost: number;
   /** True when costs were derived from estimated (family-inferred) pricing. */
   estimated?: boolean;
+  /** True when no pricing could be resolved at all — cost is reported as $0 but is unknown. */
+  unpriced?: boolean;
 }
 
 /** Aggregated cost data for a time period */

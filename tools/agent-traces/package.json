@@ -1,14 +1,16 @@
 {
   "name": "agent-traces",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Developer scripts for inspecting agent-traces.db sessions.",
+  "private": true,
+  "main": "inspect.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "inspect": "node inspect.js",
+    "inspect-session": "node inspect-session.js"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "erviAI",
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
     "better-sqlite3": "^12.10.0",
