@@ -14,7 +14,7 @@ export class StatusBarController implements vscode.Disposable {
       vscode.StatusBarAlignment.Right,
       50
     );
-    this.statusBarItem.command = 'copilotCostTracker.openDashboard';
+    this.statusBarItem.command = 'copilotLiveCostTracker.openDashboard';
     this.statusBarItem.tooltip = 'Click to open Copilot Cost Dashboard';
     this.statusBarItem.text = '$(pulse) Copilot Cost: --';
     this.statusBarItem.show();
@@ -40,8 +40,8 @@ export class StatusBarController implements vscode.Disposable {
 
   private buildUnavailableTooltip(status: DataSourceStatus): string {
     const lines = [
-      'Copilot Cost Tracker',
-      '──────────────────',
+      'Copilot Live Cost & Token Tracker',
+      '─────────────────────────────────',
       '⚠️ Data source unavailable',
       '',
       status.message ?? 'agent-traces.db not found',
@@ -76,8 +76,8 @@ export class StatusBarController implements vscode.Disposable {
       currency ? ` (~${(cost * currency.rate).toFixed(3)} ${currency.code})` : '';
 
     const lines = [
-      `Copilot Cost Tracker`,
-      `──────────────────`,
+      `Copilot Live Cost & Token Tracker`,
+      `─────────────────────────────────`,
       `Session: ${formatCost(data.currentSession.totalCost)}${converted(data.currentSession.totalCost)} (${data.currentSession.modelTurns} model turns)`,
       `Today:   ${formatCost(data.today.totalCost)}${converted(data.today.totalCost)} (${data.today.modelTurns} model turns)`,
       `Week:    ${formatCost(data.thisWeek.totalCost)}${converted(data.thisWeek.totalCost)} (${data.thisWeek.modelTurns} model turns)`,

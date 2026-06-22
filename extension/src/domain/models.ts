@@ -1,5 +1,5 @@
 /**
- * Domain models for the Copilot Cost Tracker.
+ * Domain models for Copilot Live Cost & Token Tracker.
  * All types are plain data structures — no behavior.
  */
 

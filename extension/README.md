@@ -1,6 +1,6 @@
-# GitHub Copilot Cost Tracker
+# Copilot Live Cost & Token Tracker
 
-Track GitHub Copilot token usage and estimated costs in real-time — directly inside VS Code.
+See your GitHub Copilot spend live — real-time tokens, cost, and credits, right inside VS Code.
 
 ![VS Code](https://img.shields.io/badge/VS%20Code-1.100+-blue) ![License](https://img.shields.io/badge/license-MIT-green) [![CI](https://github.com/erviAI/cost-research/actions/workflows/ci.yml/badge.svg)](https://github.com/erviAI/cost-research/actions/workflows/ci.yml)
 
@@ -54,7 +54,7 @@ Track GitHub Copilot token usage and estimated costs in real-time — directly i
 
 1. Open VS Code
 2. Go to the Extensions view (`Ctrl+Shift+X` / `Cmd+Shift+X`)
-3. Search for **"Copilot Cost Tracker"**
+3. Search for **"Copilot Live Cost & Token Tracker"**
 4. Click **Install**
 
 ### From VSIX

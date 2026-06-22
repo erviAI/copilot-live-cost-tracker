@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 let _channel: vscode.LogOutputChannel | undefined;
 
 export function createLogger(): vscode.LogOutputChannel {
-  _channel = vscode.window.createOutputChannel('Copilot Cost Tracker', { log: true });
+  _channel = vscode.window.createOutputChannel('Copilot Live Cost & Token Tracker', { log: true });
   return _channel;
 }
 

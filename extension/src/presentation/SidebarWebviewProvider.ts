@@ -8,7 +8,7 @@ import { getDisplayCurrency } from '../config.js';
  * Communicates with the webview via postMessage for updates.
  */
 export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
-  public static readonly viewType = 'copilotCostTracker.dashboard';
+  public static readonly viewType = 'copilotLiveCostTracker.dashboard';
 
   private view: vscode.WebviewView | undefined;
   private pendingData: DashboardData | null = null;
@@ -63,13 +63,13 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
 
     switch (command) {
       case 'refresh':
-        vscode.commands.executeCommand('copilotCostTracker.refresh');
+        vscode.commands.executeCommand('copilotLiveCostTracker.refresh');
         break;
       case 'openSettings':
-        vscode.commands.executeCommand('copilotCostTracker.openSettings');
+        vscode.commands.executeCommand('copilotLiveCostTracker.openSettings');
         break;
       case 'enableOtel':
-        vscode.commands.executeCommand('copilotCostTracker.enableOtel');
+        vscode.commands.executeCommand('copilotLiveCostTracker.enableOtel');
         break;
       case 'sessionDetail': {
         const sessionId = (message as { sessionId?: unknown }).sessionId;
