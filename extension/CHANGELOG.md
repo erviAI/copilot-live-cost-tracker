@@ -3,6 +3,17 @@
 All notable changes to the **Copilot Live Cost & Token Tracker** extension are
 documented in this file, with an emphasis on what changed for you, the user.
 
+## [1.0.0](https://github.com/erviAI/cost-research/compare/v0.5.0...v1.0.0) (2026-06-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* settings move from copilotCostTracker.* to copilotLiveCostTracker.*
+
+### Features
+
+* rebrand to Copilot Live Cost & Token Tracker ([#27](https://github.com/erviAI/cost-research/issues/27)) ([15b8ab4](https://github.com/erviAI/cost-research/commit/15b8ab4c26d87411ac1603e8fb6fa6a5887bc892))
+
 ## 0.6.0 (2026-06-22)
 
 **New name:** the extension is now **Copilot Live Cost & Token Tracker**
