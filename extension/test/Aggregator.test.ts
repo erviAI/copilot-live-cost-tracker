@@ -125,6 +125,28 @@ describe('Aggregator', () => {
       expect(dashboard.currentSession.sessionId).toBeNull();
     });
 
+    it('computes context weight from the latest turn of the active session', () => {
+      const now = Date.now();
+      const spans = [
+        // Older turn (trace-old): smaller prompt
+        makeSpan({ spanId: 's1', traceId: 'trace-old', startTimeMs: now - 5000, inputTokens: 8_000, cachedTokens: 2_000 }),
+        // Latest turn (trace-new): main call + a tool call sharing the trace
+        makeSpan({ spanId: 's2', traceId: 'trace-new', startTimeMs: now - 1000, inputTokens: 30_000, cachedTokens: 20_000 }),
+        makeSpan({ spanId: 's3', traceId: 'trace-new', startTimeMs: now - 900, inputTokens: 1_000, cachedTokens: 0 }),
+      ];
+
+      const dashboard = aggregator.buildDashboard(spans, new Map(), 'session-1');
+
+      // Latest turn's largest prompt = 30k fresh + 20k cached = 50k
+      expect(dashboard.currentSession.contextWeightTokens).toBe(50_000);
+    });
+
+    it('reports zero context weight when there is no active session', () => {
+      const spans = [makeSpan()];
+      const dashboard = aggregator.buildDashboard(spans, new Map(), null);
+      expect(dashboard.currentSession.contextWeightTokens).toBe(0);
+    });
+
     it('builds 7-day chart with correct structure', () => {
       const spans = [makeSpan()];
       const dashboard = aggregator.buildDashboard(spans, new Map(), null);

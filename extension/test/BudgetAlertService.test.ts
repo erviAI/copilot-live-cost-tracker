@@ -44,6 +44,7 @@ function dashboard(sessionCost: number, dailyCost = 0, weeklyCost = 0): Dashboar
       workspace: null,
       latestSpanTimeMs: null,
       spanCount: 0,
+      contextWeightTokens: 0,
     },
     last7Days: [],
     recentSessions: [],

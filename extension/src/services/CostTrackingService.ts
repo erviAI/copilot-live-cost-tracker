@@ -236,7 +236,7 @@ export class CostTrackingService implements vscode.Disposable {
     return {
       today: emptyPeriod,
       thisWeek: emptyPeriod,
-      currentSession: { ...emptyPeriod, sessionId: null, title: null, agentName: null, workspace: null, latestSpanTimeMs: null, spanCount: 0 },
+      currentSession: { ...emptyPeriod, sessionId: null, title: null, agentName: null, workspace: null, latestSpanTimeMs: null, spanCount: 0, contextWeightTokens: 0 },
       last7Days: [],
       recentSessions: [],
       updatedAt: new Date().toISOString(),

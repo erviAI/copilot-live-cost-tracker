@@ -73,6 +73,7 @@ export class Aggregator {
         workspace: currentSessionId ? (sessionWorkspaces?.get(currentSessionId) ?? null) : null,
         latestSpanTimeMs,
         spanCount: sessionSpans.length,
+        contextWeightTokens: computeContextWeight(sessionSpans),
       },
       last7Days: this.buildDailyBuckets(allSpans, now),
       recentSessions: this.buildRecentSessions(allSpans, sessionTitles, sessionWorkspaces),
@@ -462,6 +463,34 @@ function buildTraceToSessionMap(spans: Span[]): Map<string, string> {
 /** Returns true if the session ID looks like a tool-call ID (subagent invocation). */
 function isToolCallSessionId(id: string): boolean {
   return isSubagentSessionId(id);
+}
+
+/**
+ * Compute the live context weight for a session: the prompt size (fresh + cached
+ * input tokens) of the most recent turn. All spans in a turn share a traceId;
+ * we take the largest prompt among the latest turn's spans, which corresponds to
+ * the main model call carrying the full conversation context.
+ */
+function computeContextWeight(sessionSpans: Span[]): number {
+  if (sessionSpans.length === 0) return 0;
+
+  let latestTraceId = sessionSpans[0].traceId;
+  let latestTimeMs = sessionSpans[0].startTimeMs;
+  for (const s of sessionSpans) {
+    if (s.startTimeMs > latestTimeMs) {
+      latestTimeMs = s.startTimeMs;
+      latestTraceId = s.traceId;
+    }
+  }
+
+  let weight = 0;
+  for (const s of sessionSpans) {
+    if (s.traceId === latestTraceId) {
+      const prompt = s.inputTokens + s.cachedTokens;
+      if (prompt > weight) weight = prompt;
+    }
+  }
+  return weight;
 }
 
 function buildConversationToChatMap(spans: Span[]): Map<string, string> {

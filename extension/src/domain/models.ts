@@ -102,6 +102,12 @@ export interface DashboardData {
     workspace: string | null;
     latestSpanTimeMs: number | null;
     spanCount: number;
+    /**
+     * Live context weight: the prompt size (fresh + cached input tokens) of the
+     * most recent turn in the active session. Approximates how many tokens are
+     * currently being sent to the model on each turn. 0 when no active session.
+     */
+    contextWeightTokens: number;
   };
   last7Days: DailyBucket[];
   recentSessions: SessionInfo[];
