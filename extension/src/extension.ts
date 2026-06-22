@@ -13,6 +13,7 @@ import { CostHistoryService } from './services/CostHistoryService.js';
 import { BudgetAlertService } from './services/BudgetAlertService.js';
 import { StatusBarController } from './presentation/StatusBarController.js';
 import { SidebarWebviewProvider } from './presentation/SidebarWebviewProvider.js';
+import { DashboardPanel } from './presentation/DashboardPanel.js';
 import { VsCodeNotifier } from './presentation/VsCodeNotifier.js';
 import { getPollingInterval, getBudgetThresholds, getPricingOverrides, getCostDataSource, getHistoryEnabled, getHistoryRetentionDays, getHistoryScrapeInterval, isOtelDbSpanExporterEnabled, OTEL_DB_SPAN_EXPORTER_SETTING } from './config.js';
 import { createLogger } from './logger.js';
@@ -87,6 +88,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const budgetState = budgetService.evaluate(data);
     statusBar.update(data, budgetState);
     sidebarProvider.updateData(data, budgetState);
+    DashboardPanel.updateIfOpen(data, budgetState);
   });
 
   // --- Commands ---
@@ -99,7 +101,12 @@ export function activate(context: vscode.ExtensionContext): void {
       budgetService.resetAlerts();
     }),
     vscode.commands.registerCommand('copilotLiveCostTracker.openDashboard', () => {
-      vscode.commands.executeCommand('copilotLiveCostTracker.dashboard.focus');
+      const panel = DashboardPanel.createOrShow(context.extensionUri);
+      panel.setRangeSummaryHandler((preset) => trackingService.getRangeSummary(preset));
+      const data = trackingService.getLastData();
+      if (data) {
+        panel.update(data, budgetService.evaluate(data));
+      }
     }),
     vscode.commands.registerCommand('copilotLiveCostTracker.openSettings', () => {
       vscode.commands.executeCommand(
