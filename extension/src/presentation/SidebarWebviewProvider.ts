@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { randomBytes } from 'crypto';
-import type { DashboardData, BudgetState, SessionDetailData } from '../domain/models.js';
+import type { DashboardData, BudgetState, SessionDetailData, RangePreset, RangeSummary } from '../domain/models.js';
 import { getDisplayCurrency } from '../config.js';
 
 /**
@@ -14,6 +14,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
   private pendingData: DashboardData | null = null;
   private pendingBudgetState: BudgetState | null = null;
   private sessionDetailHandler: ((sessionId: string) => Promise<SessionDetailData | null>) | null = null;
+  private rangeSummaryHandler: ((preset: RangePreset) => Promise<RangeSummary>) | null = null;
   private readonly disposables: vscode.Disposable[] = [];
 
   constructor(private readonly extensionUri: vscode.Uri) {}
@@ -21,6 +22,11 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
   /** Set the handler called when the webview requests session detail */
   setSessionDetailHandler(handler: (sessionId: string) => Promise<SessionDetailData | null>): void {
     this.sessionDetailHandler = handler;
+  }
+
+  /** Set the handler called when the webview requests a date-range summary */
+  setRangeSummaryHandler(handler: (preset: RangePreset) => Promise<RangeSummary>): void {
+    this.rangeSummaryHandler = handler;
   }
 
   resolveWebviewView(
@@ -76,6 +82,14 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
         if (this.sessionDetailHandler && typeof sessionId === 'string' && sessionId.length > 0) {
           const detail = await this.sessionDetailHandler(sessionId);
           webviewView.webview.postMessage({ type: 'sessionDetail', sessionId, data: detail });
+        }
+        break;
+      }
+      case 'rangeSummary': {
+        const preset = (message as { preset?: unknown }).preset;
+        if (this.rangeSummaryHandler && (preset === '7d' || preset === '30d' || preset === '90d')) {
+          const summary = await this.rangeSummaryHandler(preset);
+          webviewView.webview.postMessage({ type: 'rangeSummary', summary });
         }
         break;
       }
@@ -152,6 +166,38 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
       color: var(--text-secondary);
       margin-bottom: 8px;
       font-weight: 600;
+    }
+
+    .range-selector {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+
+    .range-btn {
+      flex: 1;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 0.8em;
+      padding: 3px 6px;
+      border-radius: 4px;
+    }
+
+    .range-btn:hover { color: var(--text-primary); }
+
+    .range-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--vscode-button-foreground, #fff);
+      font-weight: 600;
+    }
+
+    .range-meta {
+      font-size: 0.8em;
+      color: var(--text-secondary);
+      margin-top: 4px;
     }
 
     .cost-large {
@@ -557,12 +603,23 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
 
     const sessionDetailCache = {};
     let displayCurrency = null;
+    let lastData = null;
+    let lastBudgetState = null;
+    let selectedRange = '7d';
+    let rangeSummary = null;
 
     window.addEventListener('message', (event) => {
       const msg = event.data;
       if (msg.type === 'update') {
         displayCurrency = msg.displayCurrency || null;
+        lastData = msg.data;
+        lastBudgetState = msg.budgetState;
         render(msg.data, msg.budgetState);
+        // Refresh the selected range summary alongside the live data.
+        requestRange(selectedRange);
+      } else if (msg.type === 'rangeSummary') {
+        rangeSummary = msg.summary;
+        updateRangeSection();
       } else if (msg.type === 'sessionDetail') {
         if (msg.data) {
           sessionDetailCache[msg.sessionId] = msg.data;
@@ -570,6 +627,11 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
         }
       }
     });
+
+    function requestRange(preset) {
+      selectedRange = preset;
+      vscode.postMessage({ command: 'rangeSummary', preset: preset });
+    }
 
     let expandedSessionId = null;
     const turnsExpandedSessions = {};
@@ -596,6 +658,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
         bannerHtml,
         renderSection('TODAY', renderCostCard(data.today, budgetState?.dailyLevel) + renderCollapsibleModel('today-model', data.today.byModel) + renderCollapsibleWorkspace('today-ws', data.today.byWorkspace)),
         renderSection('THIS WEEK', renderCostCard(data.thisWeek, budgetState?.weeklyLevel) + renderCollapsibleModel('week-model', data.thisWeek.byModel) + renderCollapsibleWorkspace('week-ws', data.thisWeek.byWorkspace)),
+        '<div class="section"><div class="section-header">DATE RANGE</div>' + renderRangeSelector() + '<div id="range-body">' + renderRangeBody() + '</div></div>',
         renderSection('CURRENT SESSION', renderCurrentSessionCard(data.currentSession, budgetState?.sessionLevel)),
         renderSection('LAST 7 DAYS', renderChart(data.last7Days)),
         renderSection('RECENT SESSIONS', renderSessionList(data.recentSessions)),
@@ -644,6 +707,39 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
 
     function renderSection(title, body) {
       return '<div class="section"><div class="section-header">' + title + '</div>' + body + '</div>';
+    }
+
+    var RANGE_LABELS = { '7d': '7 Days', '30d': '30 Days', '90d': '90 Days' };
+
+    function renderRangeSelector() {
+      return '<div class="range-selector">' +
+        ['7d', '30d', '90d'].map(function(p) {
+          var cls = 'range-btn' + (p === selectedRange ? ' active' : '');
+          return '<button class="' + cls + '" data-range="' + p + '">' + RANGE_LABELS[p] + '</button>';
+        }).join('') + '</div>';
+    }
+
+    function renderRangeBody() {
+      if (!rangeSummary || rangeSummary.preset !== selectedRange) {
+        return '<div class="range-meta">Loading\u2026</div>';
+      }
+      var s = rangeSummary;
+      var meta = s.daysWithData + ' of ' + s.days + ' days with data \u00b7 ' + s.startDate + ' \u2192 ' + s.endDate;
+      return '<div class="cost-large cost-green"' + costTitle(s.totalCost) + '>' + formatCost(s.totalCost) + '</div>' +
+        statRow('Model Turns', s.modelTurns) +
+        statRow('Input Tokens', formatTokens(s.inputTokens)) +
+        statRow('Output Tokens', formatTokens(s.outputTokens)) +
+        statRow('Cached Tokens', formatTokens(s.cachedTokens)) +
+        renderCollapsibleModel('range-model', s.byModel) +
+        '<div class="range-meta">' + escapeHtml(meta) + '</div>';
+    }
+
+    function updateRangeSection() {
+      var body = document.getElementById('range-body');
+      if (body) { body.innerHTML = renderRangeBody(); }
+      document.querySelectorAll('.range-btn').forEach(function(btn) {
+        btn.classList.toggle('active', btn.getAttribute('data-range') === selectedRange);
+      });
     }
 
     function renderCostCard(period, level) {
@@ -777,6 +873,19 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
       var otelLink = e.target.closest('[data-action="enableOtel"]');
       if (otelLink) {
         vscode.postMessage({ command: 'enableOtel' });
+        return;
+      }
+
+      // Date-range selector buttons
+      var rangeBtn = e.target.closest('.range-btn');
+      if (rangeBtn) {
+        var preset = rangeBtn.getAttribute('data-range');
+        if (preset && preset !== selectedRange) {
+          selectedRange = preset;
+          rangeSummary = null;
+          updateRangeSection();
+          requestRange(preset);
+        }
         return;
       }
 

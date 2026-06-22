@@ -102,6 +102,12 @@ export interface DashboardData {
     workspace: string | null;
     latestSpanTimeMs: number | null;
     spanCount: number;
+    /**
+     * Live context weight: the prompt size (fresh + cached input tokens) of the
+     * most recent turn in the active session. Approximates how many tokens are
+     * currently being sent to the model on each turn. 0 when no active session.
+     */
+    contextWeightTokens: number;
   };
   last7Days: DailyBucket[];
   recentSessions: SessionInfo[];
@@ -243,4 +249,35 @@ export interface DailyAggregate {
   byModel: ModelCostSnapshot[];
   byWorkspace: WorkspaceCost[];
   sessionCount: number;
+}
+
+/** Preset windows for the global date-range filter. */
+export type RangePreset = '7d' | '30d' | '90d';
+
+/** A single day's cost/turns within a range summary. */
+export interface RangeDailyPoint {
+  date: string; // YYYY-MM-DD
+  totalCost: number;
+  modelTurns: number;
+}
+
+/**
+ * Aggregated cost over a selected date range, combining persisted daily history
+ * with today's live snapshot. Token breakdown is summed across the window.
+ */
+export interface RangeSummary {
+  preset: RangePreset;
+  days: number;
+  startDate: string; // YYYY-MM-DD (inclusive)
+  endDate: string; // YYYY-MM-DD (inclusive, = today)
+  totalCost: number;
+  modelTurns: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  byModel: ModelCostSnapshot[];
+  daily: RangeDailyPoint[];
+  /** Number of days in the window that actually had recorded data. */
+  daysWithData: number;
 }

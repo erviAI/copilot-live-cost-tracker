@@ -33,7 +33,11 @@ export class StatusBarController implements vscode.Disposable {
     const sessionCost = formatCost(data.currentSession.totalCost);
     const todayCost = formatCost(data.today.totalCost);
 
-    this.statusBarItem.text = `$(pulse) Session: ${sessionCost} | Today: ${todayCost}`;
+    const contextSegment = data.currentSession.contextWeightTokens > 0
+      ? ` | $(brain) ${formatTokens(data.currentSession.contextWeightTokens)}`
+      : '';
+
+    this.statusBarItem.text = `$(pulse) Session: ${sessionCost} | Today: ${todayCost}${contextSegment}`;
     this.statusBarItem.backgroundColor = this.getBackgroundColor(budgetState);
     this.statusBarItem.tooltip = this.buildTooltip(data, budgetState);
   }
@@ -83,9 +87,17 @@ export class StatusBarController implements vscode.Disposable {
       `Week:    ${formatCost(data.thisWeek.totalCost)}${converted(data.thisWeek.totalCost)} (${data.thisWeek.modelTurns} model turns)`,
       ``,
       `Tokens today: ${formatTokens(data.today.inputTokens)} in / ${formatTokens(data.today.outputTokens)} out / ${formatTokens(data.today.cachedTokens)} cached`,
-      ``,
-      `Updated: ${new Date(data.updatedAt).toLocaleTimeString()}`,
     ];
+
+    if (data.currentSession.contextWeightTokens > 0) {
+      lines.push(
+        ``,
+        `🧠 Context weight: ${formatTokens(data.currentSession.contextWeightTokens)} tokens`,
+        `   (prompt size of the latest turn in this session)`,
+      );
+    }
+
+    lines.push(``, `Updated: ${new Date(data.updatedAt).toLocaleTimeString()}`);
 
     if (state.sessionLevel !== 'ok' || state.dailyLevel !== 'ok' || state.weeklyLevel !== 'ok') {
       lines.push(``, `⚠️ Budget alert active`);
