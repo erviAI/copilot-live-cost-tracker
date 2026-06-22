@@ -20,7 +20,7 @@
     "theme": "dark"
   },
   "engines": {
-    "vscode": "^1.100.0"
+    "vscode": "^1.125.0"
   },
   "categories": [
     "AI"
@@ -220,8 +220,8 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^7.6.0",
-    "@types/node": "^20.14.0",
-    "@types/vscode": "^1.100.0",
+    "@types/node": "^24",
+    "@types/vscode": "^1.125.0",
     "@vitest/coverage-v8": "^4.1.9",
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.1",
