@@ -7,6 +7,8 @@ test/
 dist/*
 !dist/extension.js
 !dist/db-worker.js
+!dist/webview
+!dist/webview/**
 tsconfig*.json
 esbuild.config.mjs
 .eslintrc*

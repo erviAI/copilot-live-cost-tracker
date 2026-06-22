@@ -208,7 +208,7 @@
     "vscode:prepublish": "npm run build",
     "build": "node esbuild.config.mjs",
     "watch": "node esbuild.config.mjs --watch",
-    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json && tsc --noEmit -p tsconfig.webview.json",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -232,6 +232,7 @@
     "vitest": "^4.1.9"
   },
   "dependencies": {
-    "better-sqlite3": "^12.11.1"
+    "better-sqlite3": "^12.11.1",
+    "chart.js": "^4.5.1"
   }
 }
