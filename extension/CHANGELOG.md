@@ -3,6 +3,14 @@
 All notable changes to the **Copilot Live Cost & Token Tracker** extension are
 documented in this file, with an emphasis on what changed for you, the user.
 
+## [1.1.0](https://github.com/erviAI/cost-research/compare/v1.0.0...v1.1.0) (2026-06-22)
+
+
+### Features
+
+* add multi-tab Chart.js dashboard panel ([#33](https://github.com/erviAI/cost-research/issues/33)) ([4d8914f](https://github.com/erviAI/cost-research/commit/4d8914fdcbfd1671ffaa1bc1213cdec0b4f2a7fc))
+* live context weight + global date-range filter ([#31](https://github.com/erviAI/cost-research/issues/31)) ([ca68679](https://github.com/erviAI/cost-research/commit/ca68679d6f686104e68cf44dd9ba7aad2e168bc8))
+
 ## [1.0.0](https://github.com/erviAI/cost-research/compare/v0.5.0...v1.0.0) (2026-06-22)
 
 

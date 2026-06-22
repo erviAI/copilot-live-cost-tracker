@@ -2,7 +2,7 @@
   "name": "copilot-live-cost-tracker",
   "displayName": "Copilot Live Cost & Token Tracker",
   "description": "See your GitHub Copilot spend live — real-time tokens, cost, and credits with a status bar gauge, sidebar, and multi-tab dashboard. 100% local.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "ervi",
   "author": "erviAI",
   "license": "MIT",
