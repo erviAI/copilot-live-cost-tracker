@@ -250,3 +250,34 @@ export interface DailyAggregate {
   byWorkspace: WorkspaceCost[];
   sessionCount: number;
 }
+
+/** Preset windows for the global date-range filter. */
+export type RangePreset = '7d' | '30d' | '90d';
+
+/** A single day's cost/turns within a range summary. */
+export interface RangeDailyPoint {
+  date: string; // YYYY-MM-DD
+  totalCost: number;
+  modelTurns: number;
+}
+
+/**
+ * Aggregated cost over a selected date range, combining persisted daily history
+ * with today's live snapshot. Token breakdown is summed across the window.
+ */
+export interface RangeSummary {
+  preset: RangePreset;
+  days: number;
+  startDate: string; // YYYY-MM-DD (inclusive)
+  endDate: string; // YYYY-MM-DD (inclusive, = today)
+  totalCost: number;
+  modelTurns: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  byModel: ModelCostSnapshot[];
+  daily: RangeDailyPoint[];
+  /** Number of days in the window that actually had recorded data. */
+  daysWithData: number;
+}

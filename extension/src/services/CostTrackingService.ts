@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
 import type { ISpanRepository, ISessionTitleResolver, ITurnLabelProvider } from '../data/interfaces.js';
-import type { Span, DashboardData, SessionDetailData, DataSourceStatus, PeriodCost } from '../domain/models.js';
+import type { Span, DashboardData, SessionDetailData, DataSourceStatus, PeriodCost, RangePreset, RangeSummary } from '../domain/models.js';
 import type { CostDataSource } from '../config.js';
 import type { CostHistoryService } from './CostHistoryService.js';
 import { Aggregator } from '../domain/Aggregator.js';
+import { buildRangeSummary, periodCostToDailyAggregate, RANGE_PRESETS } from '../domain/rangeSummary.js';
 import { isIgnoredAgent } from '../domain/filters.js';
 import { isSubagentSessionId } from '../domain/sessionIds.js';
 import { logger } from '../logger.js';
@@ -72,6 +73,30 @@ export class CostTrackingService implements vscode.Disposable {
   /** Manually set/reset the tracked session */
   resetSession(): void {
     this.currentSessionId = null;
+  }
+
+  /**
+   * Build a cost summary for a preset date range (7d/30d/90d), combining
+   * persisted daily history with today's live snapshot.
+   */
+  async getRangeSummary(preset: RangePreset): Promise<RangeSummary> {
+    const now = new Date();
+    const days = RANGE_PRESETS[preset];
+
+    let history: Awaited<ReturnType<CostHistoryService['getHistory']>> = [];
+    if (this.historyService) {
+      try {
+        history = await this.historyService.getHistory(days);
+      } catch (err) {
+        logger.warn('getRangeSummary history read failed (continuing with live data):', err);
+      }
+    }
+
+    const today = this.lastData
+      ? periodCostToDailyAggregate(this.lastData.today, toLocalDate(now))
+      : null;
+
+    return buildRangeSummary(preset, history, today, now);
   }
 
   /** Get detailed breakdown for a specific session (lazy-loaded on expand) */
@@ -287,4 +312,12 @@ function filterDaysCoveredByTraces(backfill: Span[], traceSpans: Span[]): Span[]
 function localDayKey(ms: number): string {
   const d = new Date(ms);
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+/** Local-time YYYY-MM-DD string (matches rangeSummary + history date format). */
+function toLocalDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
