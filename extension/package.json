@@ -1,8 +1,8 @@
 {
-  "name": "copilot-cost-tracker",
-  "displayName": "GitHub Copilot Cost Tracker",
-  "description": "Track GitHub Copilot token usage and costs in real-time with a sidebar dashboard and status bar.",
-  "version": "0.5.0",
+  "name": "copilot-live-cost-tracker",
+  "displayName": "Copilot Live Cost & Token Tracker",
+  "description": "See your GitHub Copilot spend live — real-time tokens, cost, and credits with a status bar gauge, sidebar, and multi-tab dashboard. 100% local.",
+  "version": "0.6.0",
   "publisher": "ervi",
   "author": "erviAI",
   "license": "MIT",
@@ -29,7 +29,11 @@
     "copilot",
     "cost",
     "tokens",
+    "credits",
+    "budget",
+    "spend",
     "usage",
+    "dashboard",
     "tracking"
   ],
   "activationEvents": [
@@ -40,45 +44,45 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "copilot-cost-tracker",
+          "id": "copilot-live-cost-tracker",
           "title": "Copilot Cost",
           "icon": "resources/icon.svg"
         }
       ]
     },
     "views": {
-      "copilot-cost-tracker": [
+      "copilot-live-cost-tracker": [
         {
           "type": "webview",
-          "id": "copilotCostTracker.dashboard",
+          "id": "copilotLiveCostTracker.dashboard",
           "name": "Dashboard"
         }
       ]
     },
     "commands": [
       {
-        "command": "copilotCostTracker.refresh",
+        "command": "copilotLiveCostTracker.refresh",
         "title": "Refresh Cost Data",
         "category": "Copilot Cost",
         "icon": "$(refresh)"
       },
       {
-        "command": "copilotCostTracker.resetSession",
+        "command": "copilotLiveCostTracker.resetSession",
         "title": "Reset Session Tracking",
         "category": "Copilot Cost"
       },
       {
-        "command": "copilotCostTracker.openDashboard",
+        "command": "copilotLiveCostTracker.openDashboard",
         "title": "Open Dashboard",
         "category": "Copilot Cost"
       },
       {
-        "command": "copilotCostTracker.openSettings",
+        "command": "copilotLiveCostTracker.openSettings",
         "title": "Open Settings",
         "category": "Copilot Cost"
       },
       {
-        "command": "copilotCostTracker.enableOtel",
+        "command": "copilotLiveCostTracker.enableOtel",
         "title": "Enable OpenTelemetry Tracing",
         "category": "Copilot Cost"
       }
@@ -86,53 +90,53 @@
     "menus": {
       "view/title": [
         {
-          "command": "copilotCostTracker.refresh",
-          "when": "view == copilotCostTracker.dashboard",
+          "command": "copilotLiveCostTracker.refresh",
+          "when": "view == copilotLiveCostTracker.dashboard",
           "group": "navigation"
         }
       ]
     },
     "configuration": {
-      "title": "Copilot Cost Tracker",
+      "title": "Copilot Live Cost & Token Tracker",
       "properties": {
-        "copilotCostTracker.pollingInterval": {
+        "copilotLiveCostTracker.pollingInterval": {
           "type": "number",
           "default": 10,
           "minimum": 2,
           "maximum": 300,
           "description": "How often to poll for new cost data (in seconds)."
         },
-        "copilotCostTracker.budget.session.warning": {
+        "copilotLiveCostTracker.budget.session.warning": {
           "type": "number",
           "default": 5,
           "description": "Session cost warning threshold (USD). Shows yellow indicator."
         },
-        "copilotCostTracker.budget.session.limit": {
+        "copilotLiveCostTracker.budget.session.limit": {
           "type": "number",
           "default": 8,
           "description": "Session cost limit threshold (USD). Shows red indicator."
         },
-        "copilotCostTracker.budget.daily.warning": {
+        "copilotLiveCostTracker.budget.daily.warning": {
           "type": "number",
           "default": 20,
           "description": "Daily cost warning threshold (USD)."
         },
-        "copilotCostTracker.budget.daily.limit": {
+        "copilotLiveCostTracker.budget.daily.limit": {
           "type": "number",
           "default": 50,
           "description": "Daily cost limit threshold (USD)."
         },
-        "copilotCostTracker.budget.weekly.warning": {
+        "copilotLiveCostTracker.budget.weekly.warning": {
           "type": "number",
           "default": 25,
           "description": "Weekly cost warning threshold (USD)."
         },
-        "copilotCostTracker.budget.weekly.limit": {
+        "copilotLiveCostTracker.budget.weekly.limit": {
           "type": "number",
           "default": 50,
           "description": "Weekly cost limit threshold (USD)."
         },
-        "copilotCostTracker.pricingOverrides": {
+        "copilotLiveCostTracker.pricingOverrides": {
           "type": "object",
           "default": {},
           "description": "Override pricing for specific models. Keys are model name patterns, values are objects with input/output/cached/cacheWrite rates per 1M tokens.",
@@ -154,7 +158,7 @@
             }
           }
         },
-        "copilotCostTracker.costDataSource": {
+        "copilotLiveCostTracker.costDataSource": {
           "type": "string",
           "enum": [
             "agent-traces-only",
@@ -167,31 +171,31 @@
           ],
           "description": "Where to read cost data from. agent-traces.db is the recommended source as it includes accurate cache read/write token counts."
         },
-        "copilotCostTracker.history.enabled": {
+        "copilotLiveCostTracker.history.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Enable persistent cost history. Saves daily aggregates to files so data survives agent-traces.db resets."
         },
-        "copilotCostTracker.history.retentionDays": {
+        "copilotLiveCostTracker.history.retentionDays": {
           "type": "number",
           "default": 90,
           "minimum": 7,
           "maximum": 365,
           "description": "Number of days to retain daily cost history files."
         },
-        "copilotCostTracker.history.scrapeInterval": {
+        "copilotLiveCostTracker.history.scrapeInterval": {
           "type": "number",
           "default": 30,
           "minimum": 1,
           "maximum": 600,
           "description": "Number of poll cycles between history scrapes. At default 10s polling, 30 cycles = ~5 minutes between file writes."
         },
-        "copilotCostTracker.displayCurrency.code": {
+        "copilotLiveCostTracker.displayCurrency.code": {
           "type": "string",
           "default": "",
           "description": "ISO currency code to show on hover (e.g. NOK, EUR, GBP). Leave empty to disable."
         },
-        "copilotCostTracker.displayCurrency.rate": {
+        "copilotLiveCostTracker.displayCurrency.rate": {
           "type": "number",
           "default": 1,
           "minimum": 0,

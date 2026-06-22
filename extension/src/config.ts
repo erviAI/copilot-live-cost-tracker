@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type { BudgetThresholds, ModelPricing } from './domain/models.js';
 
-const SECTION = 'copilotCostTracker';
+const SECTION = 'copilotLiveCostTracker';
 const MAX_BUDGET_THRESHOLD = 1_000_000;
 
 /**

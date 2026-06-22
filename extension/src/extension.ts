@@ -90,23 +90,23 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // --- Commands ---
   context.subscriptions.push(
-    vscode.commands.registerCommand('copilotCostTracker.refresh', () => {
+    vscode.commands.registerCommand('copilotLiveCostTracker.refresh', () => {
       trackingService.refresh();
     }),
-    vscode.commands.registerCommand('copilotCostTracker.resetSession', () => {
+    vscode.commands.registerCommand('copilotLiveCostTracker.resetSession', () => {
       trackingService.resetSession();
       budgetService.resetAlerts();
     }),
-    vscode.commands.registerCommand('copilotCostTracker.openDashboard', () => {
-      vscode.commands.executeCommand('copilotCostTracker.dashboard.focus');
+    vscode.commands.registerCommand('copilotLiveCostTracker.openDashboard', () => {
+      vscode.commands.executeCommand('copilotLiveCostTracker.dashboard.focus');
     }),
-    vscode.commands.registerCommand('copilotCostTracker.openSettings', () => {
+    vscode.commands.registerCommand('copilotLiveCostTracker.openSettings', () => {
       vscode.commands.executeCommand(
         'workbench.action.openSettings',
-        'copilotCostTracker'
+        'copilotLiveCostTracker'
       );
     }),
-    vscode.commands.registerCommand('copilotCostTracker.enableOtel', () => {
+    vscode.commands.registerCommand('copilotLiveCostTracker.enableOtel', () => {
       void enableOtelDbSpanExporter();
     })
   );
@@ -119,7 +119,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // --- Configuration change listener ---
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('copilotCostTracker')) {
+      if (e.affectsConfiguration('copilotLiveCostTracker')) {
         pricingEngine.setOverrides(getPricingOverrides());
         trackingService.setScrapeInterval(getHistoryScrapeInterval());
         trackingService.onConfigurationChanged();
@@ -152,7 +152,7 @@ async function ensureOtelDbSpanExporterEnabled(): Promise<void> {
   const enable = 'Enable';
   const openSetting = 'Open Setting';
   const choice = await vscode.window.showWarningMessage(
-    'Copilot Cost Tracker needs OpenTelemetry tracing to read token usage. ' +
+    'Copilot Live Cost & Token Tracker needs OpenTelemetry tracing to read token usage. ' +
       `Enable the setting "${OTEL_DB_SPAN_EXPORTER_SETTING}" so Copilot Chat writes agent-traces.db.`,
     enable,
     openSetting
