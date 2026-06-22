@@ -5,7 +5,7 @@
   "packages": {
     "extension": {
       "release-type": "node",
-      "package-name": "copilot-cost-tracker",
+      "package-name": "copilot-live-cost-tracker",
       "changelog-path": "CHANGELOG.md",
       "changelog-sections": [
         { "type": "feat", "section": "Features" },
