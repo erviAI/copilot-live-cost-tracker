@@ -49,7 +49,8 @@ export function activate(context: vscode.ExtensionContext): void {
     getPollingInterval,
     debugLogsRepo,
     getCostDataSource,
-    spanRepo // AgentTracesRepository also provides per-turn labels
+    spanRepo, // AgentTracesRepository also provides per-turn labels
+    spanRepo // ...and tool/function call spans
   );
   _trackingService = trackingService;
 

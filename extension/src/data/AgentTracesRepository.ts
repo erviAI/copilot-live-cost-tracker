@@ -1,5 +1,5 @@
 import * as path from 'path';
-import type { ISpanRepository, ITurnLabelProvider } from './interfaces.js';
+import type { ISpanRepository, ITurnLabelProvider, IToolCallProvider } from './interfaces.js';
 import type { Span } from '../domain/models.js';
 import { openDatabase, type Database } from './sqlite.js';
 
@@ -39,7 +39,7 @@ const SPAN_SELECT_SQL = `
  * Reads token/span data from agent-traces.db (OpenTelemetry format).
  * Opens the database read-only; handles WAL via native SQLite.
  */
-export class AgentTracesRepository implements ISpanRepository, ITurnLabelProvider {
+export class AgentTracesRepository implements ISpanRepository, ITurnLabelProvider, IToolCallProvider {
   private db: Database | null = null;
   private readonly dbPath: string;
 
@@ -89,6 +89,28 @@ export class AgentTracesRepository implements ISpanRepository, ITurnLabelProvide
     `;
     const rows = await db.all<Span>(sql, [sessionId, sessionId, sessionId, sessionId]);
     return rows.map(normalizeTimestamps).filter(shouldIncludeChatSpan);
+  }
+
+  /**
+   * Get tool/function call spans (operation_name = 'execute_tool') for a
+   * session, including those made by subagents that share the session's traces.
+   */
+  async getToolSpansForSession(sessionId: string): Promise<Span[]> {
+    const db = await this.getDb();
+    const sql = SPAN_SELECT_SQL + `
+      WHERE s.operation_name = 'execute_tool'
+        AND (
+          s.chat_session_id = ? OR s.conversation_id = ?
+          OR s.trace_id IN (
+            SELECT s2.trace_id FROM spans s2
+            WHERE s2.operation_name = 'chat'
+              AND (s2.chat_session_id = ? OR s2.conversation_id = ?)
+          )
+        )
+      ORDER BY s.start_time_ms ASC
+    `;
+    const rows = await db.all<Span>(sql, [sessionId, sessionId, sessionId, sessionId]);
+    return rows.map(normalizeTimestamps);
   }
 
   /**

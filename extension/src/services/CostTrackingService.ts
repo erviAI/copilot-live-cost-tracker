@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { ISpanRepository, ISessionTitleResolver, ITurnLabelProvider } from '../data/interfaces.js';
+import type { ISpanRepository, ISessionTitleResolver, ITurnLabelProvider, IToolCallProvider } from '../data/interfaces.js';
 import type { Span, DashboardData, SessionDetailData, DataSourceStatus, PeriodCost, RangePreset, RangeSummary, RecentPrompt } from '../domain/models.js';
 import type { CostDataSource } from '../config.js';
 import type { CostHistoryService } from './CostHistoryService.js';
@@ -35,7 +35,8 @@ export class CostTrackingService implements vscode.Disposable {
     private readonly getPollingInterval: () => number,
     private readonly backfillRepo: ISpanRepository | null = null,
     private readonly getCostDataSource: () => CostDataSource = () => 'agent-traces-only',
-    private readonly turnLabelProvider: ITurnLabelProvider | null = null
+    private readonly turnLabelProvider: ITurnLabelProvider | null = null,
+    private readonly toolCallProvider: IToolCallProvider | null = null
   ) {}
 
   /** Attach a history service for periodic persistence */
@@ -109,7 +110,11 @@ export class CostTrackingService implements vscode.Disposable {
       if (this.turnLabelProvider) {
         try { turnLabels = await this.turnLabelProvider.getTurnLabels(sessionId); } catch { /* ignore */ }
       }
-      return this.aggregator.aggregateSessionDetail(sessionId, spans, turnLabels);
+      let toolSpans: Span[] | undefined;
+      if (this.toolCallProvider) {
+        try { toolSpans = await this.toolCallProvider.getToolSpansForSession(sessionId); } catch { /* ignore */ }
+      }
+      return this.aggregator.aggregateSessionDetail(sessionId, spans, turnLabels, toolSpans);
     } catch (err) {
       logger.error('getSessionDetail error:', err);
       return null;
