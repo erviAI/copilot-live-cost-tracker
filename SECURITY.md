@@ -9,7 +9,7 @@ The latest released version on the VS Code Marketplace receives security fixes.
 Please **do not** open a public issue for security vulnerabilities.
 
 Instead, report them privately using GitHub's
-[private vulnerability reporting](https://github.com/erviAI/cost-research/security/advisories/new)
+[private vulnerability reporting](https://github.com/erviAI/copilot-live-cost-tracker/security/advisories/new)
 for this repository. Include:
 
 - A description of the issue and its impact.

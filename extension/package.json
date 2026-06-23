@@ -8,12 +8,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/erviAI/cost-research"
+    "url": "https://github.com/erviAI/copilot-live-cost-tracker"
   },
   "bugs": {
-    "url": "https://github.com/erviAI/cost-research/issues"
+    "url": "https://github.com/erviAI/copilot-live-cost-tracker/issues"
   },
-  "homepage": "https://github.com/erviAI/cost-research#readme",
+  "homepage": "https://github.com/erviAI/copilot-live-cost-tracker#readme",
   "icon": "resources/icon.png",
   "galleryBanner": {
     "color": "#1e1e1e",
