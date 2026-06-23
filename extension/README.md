@@ -1,51 +1,53 @@
 # Copilot Live Cost & Token Tracker
 
-See your GitHub Copilot spend live — real-time tokens, cost, and credits, right inside VS Code.
+**Know exactly what GitHub Copilot is costing you — live, in your status bar, as you work.**
 
-![VS Code](https://img.shields.io/badge/VS%20Code-1.100+-blue) ![License](https://img.shields.io/badge/license-MIT-green) [![CI](https://github.com/erviAI/cost-research/actions/workflows/ci.yml/badge.svg)](https://github.com/erviAI/cost-research/actions/workflows/ci.yml)
+Copilot bills by tokens and credits, but VS Code never shows you the running total. This extension does: a real-time gauge in your status bar, a per-model breakdown in the sidebar, and budget alerts before you blow past your limit. Everything is computed **100% locally** — no account login, no telemetry, no data ever leaves your machine.
+
+![VS Code](https://img.shields.io/badge/VS%20Code-1.125+-blue) ![License](https://img.shields.io/badge/license-MIT-green) [![CI](https://github.com/erviAI/copilot-live-cost-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/erviAI/copilot-live-cost-tracker/actions/workflows/ci.yml)
+
+## Why you'll want it
+
+- 💸 **No more surprise bills** — watch session and daily spend update live while you chat.
+- 🔍 **See which model drains your budget** — Claude, GPT-4o, Gemini and friends, broken down side by side.
+- 🚦 **Stop before you overspend** — color-coded warnings and notifications at thresholds you set.
+- 🔒 **Truly private** — reads only local Copilot data; nothing is uploaded, ever.
 
 ## Features
 
-### Real-Time Cost Dashboard
+### 📊 Real-time cost dashboard
 
-- **Activity Bar sidebar** with a live-updating dashboard showing token usage and cost breakdowns
-- **Status bar indicator** displaying session and daily cost at a glance
-- Per-model breakdown: see exactly which models (Claude, GPT-4o, Gemini, etc.) are consuming your budget
+- **Status bar gauge** showing session and daily cost at a glance — always visible, always current.
+- **Activity Bar sidebar** with a live-updating dashboard of token usage and cost breakdowns.
+- **Per-model breakdown** so you can see exactly which models (Claude, GPT-4o, Gemini, etc.) are consuming your budget.
 
-### Budget Alerts
+### 🚦 Budget alerts
 
-- Configurable warning and limit thresholds for **session**, **daily**, and **weekly** spending
-- Color-coded status bar: normal → yellow (warning) → red (limit reached)
-- VS Code notifications when thresholds are crossed
+- Set warning and limit thresholds for **session**, **daily**, and **weekly** spending.
+- Status bar shifts color as you climb: normal → yellow (warning) → red (limit reached).
+- VS Code notifications fire the moment a threshold is crossed.
 
-### Session Tracking
+### 🕑 Session tracking & history
 
-- Automatic detection of the current chat session
-- Historical view of recent sessions with cost summaries
-- 7-day rolling window with daily cost buckets
+- Automatically detects your current chat session and summarizes recent ones.
+- 7-day rolling window with daily cost buckets.
+- Daily aggregates are saved to disk, so your history survives Copilot database resets — with configurable retention (7–365 days, default 90).
 
-### Cost History & Persistence
+### 🎯 Accurate, transparent pricing
 
-- Daily cost aggregates saved to disk so data survives database resets
-- Configurable retention (7–365 days, default 90)
-- Automatic background scraping with minimal I/O
+- Built-in pricing for Claude (Opus, Sonnet, Haiku), GPT-4o/4.1, o1, o3, Gemini, and more.
+- Fuzzy model-name matching handles version suffixes and naming variations automatically.
+- Add your own rates for custom or brand-new models via [pricing overrides](#custom-pricing-overrides).
 
-### Privacy & Portability
+### 🔒 Private & portable
 
-- Reads only local Copilot telemetry and debug logs from VS Code's user storage
-- Works across VS Code, VS Code Insiders, VSCodium, and portable installs — the storage location is resolved automatically from the extension's own storage path
-- Cross-platform support: macOS, Windows, and Linux storage paths resolved automatically
-- No data leaves your machine — all processing is 100% local
-
-### Accurate Pricing
-
-- Built-in pricing table covering Claude (Opus, Sonnet, Haiku), GPT-4o/4.1, o1, o3, Gemini, and more
-- Fuzzy model name matching handles version suffixes and naming variations
-- User-configurable pricing overrides for custom or new models
+- Reads only local Copilot telemetry and debug logs from VS Code's own user storage — **no data leaves your machine**.
+- Works across VS Code, VS Code Insiders, VSCodium, and portable installs; the storage location is resolved automatically.
+- Cross-platform: macOS, Windows, and Linux paths are all resolved for you.
 
 ## Requirements
 
-- **VS Code 1.100 or later** — including Insiders, VSCodium, and portable installs
+- **VS Code 1.125 or later** — including Insiders, VSCodium, and portable installs
 - GitHub Copilot Chat extension installed (this is where the usage data comes from)
 
 ## Installation
@@ -59,7 +61,7 @@ See your GitHub Copilot spend live — real-time tokens, cost, and credits, righ
 
 ### From VSIX
 
-1. Download the `.vsix` file from [Releases](https://github.com/erviAI/cost-research/releases)
+1. Download the `.vsix` file from [Releases](https://github.com/erviAI/copilot-live-cost-tracker/releases)
 2. In VS Code, open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)
 3. Run **Extensions: Install from VSIX…**
 4. Select the downloaded file
@@ -170,8 +172,8 @@ workflow and guidelines.
 
 ```bash
 # Clone and set up
-git clone https://github.com/erviAI/cost-research.git
-cd cost-research/extension
+git clone https://github.com/erviAI/copilot-live-cost-tracker.git
+cd copilot-live-cost-tracker/extension
 npm ci
 
 # Development
