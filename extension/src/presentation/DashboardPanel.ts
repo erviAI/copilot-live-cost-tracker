@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { randomBytes } from 'crypto';
-import type { DashboardData, BudgetState, RangePreset, RangeSummary } from '../domain/models.js';
+import type { DashboardData, BudgetState, RangePreset, RangeSummary, RecentPrompt } from '../domain/models.js';
 import { getBudgetThresholds, getDisplayCurrency } from '../config.js';
 
 /**
@@ -18,6 +18,7 @@ export class DashboardPanel {
   private latestData: DashboardData | null = null;
   private latestBudgetState: BudgetState | null = null;
   private rangeSummaryHandler: ((preset: RangePreset) => Promise<RangeSummary>) | null = null;
+  private recentTurnsHandler: (() => Promise<RecentPrompt[]>) | null = null;
 
   private constructor(panel: vscode.WebviewPanel, private readonly extensionUri: vscode.Uri) {
     this.panel = panel;
@@ -67,6 +68,11 @@ export class DashboardPanel {
     this.rangeSummaryHandler = handler;
   }
 
+  /** Set the handler invoked when the webview requests recent per-prompt costs. */
+  setRecentTurnsHandler(handler: () => Promise<RecentPrompt[]>): void {
+    this.recentTurnsHandler = handler;
+  }
+
   /** Push new dashboard data to the panel. */
   update(data: DashboardData, budgetState: BudgetState | null): void {
     this.latestData = data;
@@ -105,6 +111,13 @@ export class DashboardPanel {
         if (this.rangeSummaryHandler && (preset === '7d' || preset === '30d' || preset === '90d')) {
           const summary = await this.rangeSummaryHandler(preset);
           this.panel.webview.postMessage({ type: 'rangeSummary', summary });
+        }
+        break;
+      }
+      case 'recentTurns': {
+        if (this.recentTurnsHandler) {
+          const turns = await this.recentTurnsHandler();
+          this.panel.webview.postMessage({ type: 'recentTurns', turns });
         }
         break;
       }
@@ -206,6 +219,17 @@ export class DashboardPanel {
     .budget-sub { font-size: 0.75em; color: var(--text-secondary); margin-top: 3px; }
     .empty { text-align: center; color: var(--text-secondary); padding: 48px 16px; }
     .updated-at { margin-top: 16px; font-size: 0.75em; color: var(--text-secondary); text-align: right; }
+    .prompts-wrap { margin-top: 16px; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 6px; padding: 12px; }
+    .prompts-title { font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); margin-bottom: 8px; font-weight: 600; }
+    .prompts-msg { color: var(--text-secondary); font-size: 0.85em; padding: 8px 0; }
+    .prompts-table { width: 100%; border-collapse: collapse; font-size: 0.82em; }
+    .prompts-table th { text-align: left; color: var(--text-secondary); font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--card-border); }
+    .prompts-table td { padding: 4px 8px; border-bottom: 1px solid var(--card-border); vertical-align: top; }
+    .prompts-table tr:last-child td { border-bottom: none; }
+    .prompts-table .num { text-align: right; white-space: nowrap; }
+    .prompts-session { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+    .prompts-label { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .prompts-muted { color: var(--text-secondary); font-style: italic; }
   </style>
 </head>
 <body>

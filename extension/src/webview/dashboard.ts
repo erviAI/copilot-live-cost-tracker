@@ -1,5 +1,5 @@
 import Chart from 'chart.js/auto';
-import type { DashboardData, BudgetState, BudgetThresholds, RangeSummary, RangePreset } from '../domain/models.js';
+import type { DashboardData, BudgetState, BudgetThresholds, RangeSummary, RangePreset, RecentPrompt } from '../domain/models.js';
 
 /** Minimal shape of the VS Code webview API we use. */
 interface VsCodeApi {
@@ -22,7 +22,11 @@ interface RangeMessage {
   type: 'rangeSummary';
   summary: RangeSummary;
 }
-type InboundMessage = UpdateMessage | RangeMessage;
+interface RecentTurnsMessage {
+  type: 'recentTurns';
+  turns: RecentPrompt[];
+}
+type InboundMessage = UpdateMessage | RangeMessage | RecentTurnsMessage;
 
 const vscode = acquireVsCodeApi();
 
@@ -32,6 +36,7 @@ let budgetState: BudgetState | null = null;
 let thresholds: BudgetThresholds | null = null;
 let displayCurrency: DisplayCurrency = null;
 let rangeSummary: RangeSummary | null = null;
+let recentTurns: RecentPrompt[] | null = null;
 let selectedRange: RangePreset = '7d';
 let activeTab = 'overview';
 
@@ -70,6 +75,9 @@ window.addEventListener('message', (event: MessageEvent<InboundMessage>) => {
   } else if (msg.type === 'rangeSummary') {
     rangeSummary = msg.summary;
     renderActiveTab();
+  } else if (msg.type === 'recentTurns') {
+    recentTurns = msg.turns;
+    renderRecentTurnsTable();
   }
 });
 
@@ -165,8 +173,51 @@ function renderActivity(panel: HTMLElement): void {
       statCard('Output Tokens', formatTokens(output)) +
       statCard('Cached Tokens', formatTokens(cached)) +
     '</div>' +
-    '<div class="chart-wrap"><canvas id="c-activity"></canvas></div>';
+    '<div class="chart-wrap"><canvas id="c-activity"></canvas></div>' +
+    '<div class="prompts-wrap"><div class="prompts-title">Cost per User Prompt</div>' +
+    '<div id="recent-turns">' + renderRecentTurnsBody() + '</div></div>';
   drawTurnsChart('c-activity');
+  vscode.postMessage({ command: 'recentTurns' });
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function cacheHitPct(inputTokens: number, cachedTokens: number): string {
+  if (inputTokens <= 0) return '0%';
+  return Math.round((100 * cachedTokens) / inputTokens) + '%';
+}
+
+function renderRecentTurnsBody(): string {
+  if (recentTurns === null) return '<div class="prompts-msg">Loading…</div>';
+  if (recentTurns.length === 0) return '<div class="prompts-msg">No prompts yet.</div>';
+  const rows = recentTurns.map(t => {
+    const label = t.label ? escapeHtml(t.label) : '<span class="prompts-muted">(no prompt text)</span>';
+    return '<tr>' +
+      '<td class="prompts-session" title="' + escapeHtml(t.sessionTitle) + '">' + escapeHtml(t.sessionTitle) + '</td>' +
+      '<td class="prompts-label" title="' + (t.label ? escapeHtml(t.label) : '') + '">' + label + '</td>' +
+      '<td class="num">' + formatCost(t.totalCost) + '</td>' +
+      '<td class="num">' + t.llmCalls + '</td>' +
+      '<td class="num">' + formatTokens(t.inputTokens) + '</td>' +
+      '<td class="num">' + formatTokens(t.outputTokens) + '</td>' +
+      '<td class="num">' + cacheHitPct(t.inputTokens, t.cachedTokens) + '</td>' +
+      '</tr>';
+  }).join('');
+  return '<table class="prompts-table">' +
+    '<thead><tr><th>Session</th><th>Prompt</th><th class="num">Cost</th>' +
+    '<th class="num">Reqs</th><th class="num">In</th><th class="num">Out</th><th class="num">Hit%</th></tr></thead>' +
+    '<tbody>' + rows + '</tbody></table>';
+}
+
+function renderRecentTurnsTable(): void {
+  const el = document.getElementById('recent-turns');
+  if (el) el.innerHTML = renderRecentTurnsBody();
 }
 
 function renderModels(panel: HTMLElement): void {

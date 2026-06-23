@@ -179,6 +179,12 @@ export interface SessionDetailData {
   totalLlmCalls: number;
 }
 
+/** A single user prompt across recent sessions, with its session context. */
+export interface RecentPrompt extends TurnCost {
+  sessionId: string;
+  sessionTitle: string;
+}
+
 /** Pricing rates for a model (all per 1M tokens) */
 export interface ModelPricing {
   input: number;
