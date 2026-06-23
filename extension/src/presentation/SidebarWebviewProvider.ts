@@ -657,11 +657,11 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
       const html = [
         bannerHtml,
         renderSection('TODAY', renderCostCard(data.today, budgetState?.dailyLevel) + renderCollapsibleModel('today-model', data.today.byModel) + renderCollapsibleWorkspace('today-ws', data.today.byWorkspace)),
+        renderSection('CURRENT SESSION', renderCurrentSessionCard(data.currentSession, budgetState?.sessionLevel)),
+        renderSection('RECENT SESSIONS', renderSessionList(data.recentSessions)),
         renderSection('THIS WEEK', renderCostCard(data.thisWeek, budgetState?.weeklyLevel) + renderCollapsibleModel('week-model', data.thisWeek.byModel) + renderCollapsibleWorkspace('week-ws', data.thisWeek.byWorkspace)),
         '<div class="section"><div class="section-header">DATE RANGE</div>' + renderRangeSelector() + '<div id="range-body">' + renderRangeBody() + '</div></div>',
-        renderSection('CURRENT SESSION', renderCurrentSessionCard(data.currentSession, budgetState?.sessionLevel)),
         renderSection('LAST 7 DAYS', renderChart(data.last7Days)),
-        renderSection('RECENT SESSIONS', renderSessionList(data.recentSessions)),
         '<div class="updated-at">Updated: ' + formatTime(data.updatedAt) + '</div>',
       ].join('');
 
