@@ -49,7 +49,8 @@ export function activate(context: vscode.ExtensionContext): void {
     getPollingInterval,
     debugLogsRepo,
     getCostDataSource,
-    spanRepo // AgentTracesRepository also provides per-turn labels
+    spanRepo, // AgentTracesRepository also provides per-turn labels
+    spanRepo // ...and tool/function call spans
   );
   _trackingService = trackingService;
 
@@ -103,6 +104,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('copilotLiveCostTracker.openDashboard', () => {
       const panel = DashboardPanel.createOrShow(context.extensionUri);
       panel.setRangeSummaryHandler((preset) => trackingService.getRangeSummary(preset));
+      panel.setRecentTurnsHandler(() => trackingService.getRecentTurns());
       const data = trackingService.getLastData();
       if (data) {
         panel.update(data, budgetService.evaluate(data));

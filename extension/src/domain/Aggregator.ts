@@ -1,4 +1,4 @@
-import type { Span, ModelCost, PeriodCost, DailyBucket, SessionInfo, DashboardData, SessionDetailData, TurnCost, ModelDetailBreakdown, SpanDetail, WorkspaceCost } from './models.js';
+import type { Span, ModelCost, PeriodCost, DailyBucket, SessionInfo, DashboardData, SessionDetailData, TurnCost, ModelDetailBreakdown, SpanDetail, WorkspaceCost, ToolCall } from './models.js';
 import { CostCalculator } from './CostCalculator.js';
 import { isIgnoredAgent } from './filters.js';
 import { isSubagentSessionId } from './sessionIds.js';
@@ -278,7 +278,66 @@ export class Aggregator {
    * Aggregate session detail: per-turn costs and per-model breakdown with rate.
    * @param turnLabels Map of traceId → user prompt label (from agent-traces.db)
    */
-  aggregateSessionDetail(sessionId: string, spans: Span[], turnLabels?: Map<string, string>): SessionDetailData {
+  /**
+   * Bind tool/function calls to the model (chat) call that requested them.
+   * Grouping by parentSpanId (owning agent) keeps parallel subagents isolated;
+   * within an agent a tool is attributed to the most recent preceding chat call.
+   * Mutates the matched SpanDetail.toolCalls and returns any unbound tool calls.
+   */
+  private bindToolCallsToSpans(
+    chatSpans: Span[],
+    toolCalls: ToolCall[],
+    detailById: Map<string, SpanDetail>
+  ): ToolCall[] {
+    const byParent = new Map<string, Span[]>();
+    for (const s of chatSpans) {
+      const k = s.parentSpanId ?? '';
+      const arr = byParent.get(k) ?? [];
+      arr.push(s);
+      byParent.set(k, arr);
+    }
+    for (const arr of byParent.values()) arr.sort((a, b) => a.startTimeMs - b.startTimeMs);
+
+    const unbound: ToolCall[] = [];
+    for (const tool of toolCalls) {
+      const candidates = byParent.get(tool.parentSpanId ?? '') ?? [];
+      let chosen: Span | null = null;
+      for (const c of candidates) {
+        if (c.startTimeMs <= tool.startTimeMs) chosen = c;
+        else break;
+      }
+      const detail = chosen ? detailById.get(chosen.spanId) : undefined;
+      if (detail) {
+        (detail.toolCalls ??= []).push(tool);
+      } else {
+        unbound.push(tool);
+      }
+    }
+    for (const d of detailById.values()) d.toolCalls?.sort((a, b) => a.startTimeMs - b.startTimeMs);
+    return unbound;
+  }
+
+  aggregateSessionDetail(sessionId: string, spans: Span[], turnLabels?: Map<string, string>, toolSpans?: Span[]): SessionDetailData {
+    // --- Tool/function calls grouped by trace (turn) ---
+    const toolCallsByTrace = new Map<string, ToolCall[]>();
+    for (const s of toolSpans ?? []) {
+      if (!s.toolName) continue;
+      const arr = toolCallsByTrace.get(s.traceId) ?? [];
+      arr.push({
+        spanId: s.spanId,
+        traceId: s.traceId,
+        parentSpanId: s.parentSpanId,
+        toolName: s.toolName,
+        operationName: s.operationName,
+        agentName: s.agentName,
+        startTimeMs: s.startTimeMs,
+        durationMs: Math.max(0, s.endTimeMs - s.startTimeMs),
+        status: s.statusCode === 2 ? 'error' : 'ok',
+      });
+      toolCallsByTrace.set(s.traceId, arr);
+    }
+    for (const arr of toolCallsByTrace.values()) arr.sort((a, b) => a.startTimeMs - b.startTimeMs);
+
     // --- Per-turn breakdown ---
     // Prefer turnIndex for grouping; fall back to traceId when turnIndex is unavailable
     const hasTurnIndex = spans.some(s => s.turnIndex != null && s.turnIndex >= 0);
@@ -321,6 +380,7 @@ export class Aggregator {
 
       // Build child turns for each subagent group
       const children: TurnCost[] = [];
+      const allSubDetails: SpanDetail[] = [];
       for (const [_subSessionId, subSpans] of subagentGroups) {
         const subPeriod = this.aggregatePeriod(subSpans);
         const subDuration = subSpans.reduce((sum, s) => sum + (s.endTimeMs - s.startTimeMs), 0);
@@ -331,9 +391,12 @@ export class Aggregator {
             spanId: s.spanId, traceId: s.traceId, agentName: s.agentName, model,
             inputTokens: s.inputTokens, outputTokens: s.outputTokens,
             cachedTokens: s.cachedTokens, cacheWriteTokens: s.cacheWriteTokens,
+            reasoningTokens: s.reasoningTokens,
             totalCost: cost?.totalCost ?? 0, durationMs: s.endTimeMs - s.startTimeMs,
+            startTimeMs: s.startTimeMs, operationName: s.operationName, toolName: s.toolName,
           };
         });
+        allSubDetails.push(...subSpanDetails);
         children.push({
           turnIndex,
           traceId,
@@ -365,12 +428,25 @@ export class Aggregator {
           spanId: s.spanId, traceId: s.traceId, agentName: s.agentName, model,
           inputTokens: s.inputTokens, outputTokens: s.outputTokens,
           cachedTokens: s.cachedTokens, cacheWriteTokens: s.cacheWriteTokens,
+          reasoningTokens: s.reasoningTokens,
           totalCost: cost?.totalCost ?? 0, durationMs: s.endTimeMs - s.startTimeMs,
+          startTimeMs: s.startTimeMs, operationName: s.operationName, toolName: s.toolName,
         };
       });
 
       // Resolve turn label from user prompt (keyed by traceId)
       const label = turnLabels?.get(traceId) ?? null;
+
+      // Bind each tool/function call to the model call that requested it.
+      // Scope by parentSpanId (the owning agent) so parallel subagents never
+      // cross-attribute; within an agent, a tool belongs to the most recent
+      // preceding chat call. Tools with no matching model call stay at turn level.
+      const detailById = new Map<string, SpanDetail>();
+      for (const d of spanDetails) detailById.set(d.spanId, d);
+      for (const d of allSubDetails) detailById.set(d.spanId, d);
+      const unboundTools = this.bindToolCallsToSpans(
+        turnSpans, toolCallsByTrace.get(traceId) ?? [], detailById
+      );
 
       turns.push({
         turnIndex,
@@ -388,6 +464,7 @@ export class Aggregator {
         durationMs,
         spans: spanDetails,
         children: children.length > 0 ? children : undefined,
+        toolCalls: unboundTools.length > 0 ? unboundTools : undefined,
       });
     }
 

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import type { ISpanRepository, ISessionTitleResolver, ITurnLabelProvider } from '../data/interfaces.js';
-import type { Span, DashboardData, SessionDetailData, DataSourceStatus, PeriodCost, RangePreset, RangeSummary } from '../domain/models.js';
+import type { ISpanRepository, ISessionTitleResolver, ITurnLabelProvider, IToolCallProvider } from '../data/interfaces.js';
+import type { Span, DashboardData, SessionDetailData, DataSourceStatus, PeriodCost, RangePreset, RangeSummary, RecentPrompt } from '../domain/models.js';
 import type { CostDataSource } from '../config.js';
 import type { CostHistoryService } from './CostHistoryService.js';
 import { Aggregator } from '../domain/Aggregator.js';
@@ -35,7 +35,8 @@ export class CostTrackingService implements vscode.Disposable {
     private readonly getPollingInterval: () => number,
     private readonly backfillRepo: ISpanRepository | null = null,
     private readonly getCostDataSource: () => CostDataSource = () => 'agent-traces-only',
-    private readonly turnLabelProvider: ITurnLabelProvider | null = null
+    private readonly turnLabelProvider: ITurnLabelProvider | null = null,
+    private readonly toolCallProvider: IToolCallProvider | null = null
   ) {}
 
   /** Attach a history service for periodic persistence */
@@ -109,11 +110,39 @@ export class CostTrackingService implements vscode.Disposable {
       if (this.turnLabelProvider) {
         try { turnLabels = await this.turnLabelProvider.getTurnLabels(sessionId); } catch { /* ignore */ }
       }
-      return this.aggregator.aggregateSessionDetail(sessionId, spans, turnLabels);
+      let toolSpans: Span[] | undefined;
+      if (this.toolCallProvider) {
+        try { toolSpans = await this.toolCallProvider.getToolSpansForSession(sessionId); } catch { /* ignore */ }
+      }
+      return this.aggregator.aggregateSessionDetail(sessionId, spans, turnLabels, toolSpans);
     } catch (err) {
       logger.error('getSessionDetail error:', err);
       return null;
     }
+  }
+
+  /**
+   * Flatten the per-prompt (turn) costs from the most recent sessions into a
+   * single newest-first list, for the dashboard Activity table.
+   * @param maxSessions How many recent sessions to pull turns from.
+   * @param maxPrompts Cap on the total number of prompts returned.
+   */
+  async getRecentTurns(maxSessions = 5, maxPrompts = 50): Promise<RecentPrompt[]> {
+    const sessions = this.lastData?.recentSessions ?? [];
+    const prompts: RecentPrompt[] = [];
+    for (const session of sessions.slice(0, maxSessions)) {
+      try {
+        const detail = await this.getSessionDetail(session.sessionId);
+        if (!detail) continue;
+        for (const turn of detail.turns) {
+          prompts.push({ ...turn, sessionId: session.sessionId, sessionTitle: session.title });
+        }
+      } catch (err) {
+        logger.warn('getRecentTurns: session detail failed (continuing):', err);
+      }
+    }
+    prompts.sort((a, b) => b.startTimeMs - a.startTimeMs);
+    return prompts.slice(0, maxPrompts);
   }
 
   private scheduleNext(): void {

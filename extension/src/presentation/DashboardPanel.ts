@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { randomBytes } from 'crypto';
-import type { DashboardData, BudgetState, RangePreset, RangeSummary } from '../domain/models.js';
+import type { DashboardData, BudgetState, RangePreset, RangeSummary, RecentPrompt } from '../domain/models.js';
 import { getBudgetThresholds, getDisplayCurrency } from '../config.js';
 
 /**
@@ -18,6 +18,7 @@ export class DashboardPanel {
   private latestData: DashboardData | null = null;
   private latestBudgetState: BudgetState | null = null;
   private rangeSummaryHandler: ((preset: RangePreset) => Promise<RangeSummary>) | null = null;
+  private recentTurnsHandler: (() => Promise<RecentPrompt[]>) | null = null;
 
   private constructor(panel: vscode.WebviewPanel, private readonly extensionUri: vscode.Uri) {
     this.panel = panel;
@@ -67,6 +68,11 @@ export class DashboardPanel {
     this.rangeSummaryHandler = handler;
   }
 
+  /** Set the handler invoked when the webview requests recent per-prompt costs. */
+  setRecentTurnsHandler(handler: () => Promise<RecentPrompt[]>): void {
+    this.recentTurnsHandler = handler;
+  }
+
   /** Push new dashboard data to the panel. */
   update(data: DashboardData, budgetState: BudgetState | null): void {
     this.latestData = data;
@@ -105,6 +111,13 @@ export class DashboardPanel {
         if (this.rangeSummaryHandler && (preset === '7d' || preset === '30d' || preset === '90d')) {
           const summary = await this.rangeSummaryHandler(preset);
           this.panel.webview.postMessage({ type: 'rangeSummary', summary });
+        }
+        break;
+      }
+      case 'recentTurns': {
+        if (this.recentTurnsHandler) {
+          const turns = await this.recentTurnsHandler();
+          this.panel.webview.postMessage({ type: 'recentTurns', turns });
         }
         break;
       }
@@ -206,6 +219,76 @@ export class DashboardPanel {
     .budget-sub { font-size: 0.75em; color: var(--text-secondary); margin-top: 3px; }
     .empty { text-align: center; color: var(--text-secondary); padding: 48px 16px; }
     .updated-at { margin-top: 16px; font-size: 0.75em; color: var(--text-secondary); text-align: right; }
+    .prompts-wrap { margin-top: 16px; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 6px; padding: 12px; }
+    .prompts-title { font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); margin-bottom: 8px; font-weight: 600; }
+    .prompts-msg { color: var(--text-secondary); font-size: 0.85em; padding: 8px 0; }
+    .prompts-table { width: 100%; border-collapse: collapse; font-size: 0.82em; }
+    .prompts-table th { text-align: left; color: var(--text-secondary); font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--card-border); }
+    .prompts-table td { padding: 4px 8px; border-bottom: 1px solid var(--card-border); vertical-align: top; }
+    .prompts-table tr:last-child td { border-bottom: none; }
+    .prompts-table .num { text-align: right; white-space: nowrap; }
+    .prompts-session { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+    .prompts-label { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .prompts-muted { color: var(--text-secondary); font-style: italic; }
+
+    /* Collapsible sections */
+    .section { margin-bottom: 16px; }
+    .section-head { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; padding: 6px 0; font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); font-weight: 600; }
+    .section-head:hover { color: var(--text-primary, inherit); }
+    .section-chevron { font-size: 1em; width: 12px; display: inline-block; }
+    .section-title { flex-shrink: 0; }
+    .section-body { margin-top: 8px; }
+    .section-body.hidden { display: none; }
+
+    /* KPI info badges + popover */
+    .info-badge { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; margin-left: 5px; border-radius: 50%; background: var(--card-border); color: var(--text-secondary); font-size: 9px; font-weight: 700; font-style: normal; cursor: pointer; vertical-align: middle; line-height: 1; }
+    .info-badge:hover { background: var(--accent, #3584e4); color: #fff; }
+    .info-pop { position: absolute; z-index: 1000; max-width: 280px; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 6px; padding: 10px 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.35); font-size: 0.8em; }
+    .info-pop-title { font-weight: 700; margin-bottom: 4px; }
+    .info-pop-text { color: var(--text-secondary); line-height: 1.4; }
+
+    /* Prompt rows + inline detail */
+    .prompt-row { cursor: pointer; }
+    .prompt-row:hover td { background: var(--card-border); }
+    .prompt-caret { display: inline-block; width: 10px; color: var(--text-secondary); }
+    .prompt-detail-row.hidden { display: none; }
+    .prompt-detail-row > td { background: rgba(127,127,127,0.06); padding: 10px 14px !important; }
+    .detail-wrap { display: flex; flex-direction: column; gap: 8px; }
+    .detail-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .detail-summary { font-size: 0.85em; color: var(--text-secondary); }
+    .detail-modal-btn { background: transparent; color: var(--accent, #3584e4); border: 1px solid var(--card-border); border-radius: 4px; padding: 3px 8px; font-size: 0.8em; cursor: pointer; white-space: nowrap; }
+    .detail-modal-btn:hover { background: var(--card-border); }
+    .detail-section-title { font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); font-weight: 600; margin: 6px 0 2px; }
+    .detail-table { width: 100%; border-collapse: collapse; font-size: 0.78em; }
+    .detail-table th { text-align: left; color: var(--text-secondary); font-weight: 600; padding: 3px 6px; border-bottom: 1px solid var(--card-border); }
+    .detail-table td { padding: 3px 6px; border-bottom: 1px solid var(--card-border); }
+    .detail-table .num { text-align: right; white-space: nowrap; }
+    .detail-table .detail-op { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .detail-table .detail-tools { white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+    .detail-table .detail-tools .section-chevron { font-size: 0.85em; opacity: 0.8; }
+    .detail-table .tool-ok { color: var(--cost-green, #4e9a06); }
+    .detail-table .tool-err { color: var(--cost-red, #c01c28); font-weight: 600; }
+    .detail-table tr.span-row.clickable { cursor: pointer; }
+    .detail-table tr.span-row.clickable:hover > td { background: rgba(127,127,127,0.08); }
+    .span-tools-row > td { padding: 0 !important; border-bottom: 1px solid var(--card-border); }
+    .span-tools-wrap { padding: 4px 6px 6px 22px; }
+    .detail-subtitle { font-size: 0.72em; color: var(--text-secondary); font-weight: 600; margin: 6px 0 2px; }
+    .detail-child { margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--card-border); }
+    .detail-child-head { font-size: 0.8em; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+    .detail-child-head .section-chevron { font-size: 0.85em; opacity: 0.8; }
+    .detail-child-name { flex: 0 0 auto; }
+    .detail-child-totals { font-weight: 400; opacity: 0.75; }
+    .detail-child-body.hidden { display: none; }
+
+    /* Modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000; padding: 24px; }
+    .modal-overlay.hidden { display: none; }
+    .modal { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 8px; width: 100%; height: 100%; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+    .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--card-border); }
+    .modal-head span { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .modal-head button { background: transparent; border: none; color: var(--text-secondary); font-size: 1.1em; cursor: pointer; }
+    .modal-head button:hover { color: var(--text-primary, inherit); }
+    .modal-body { padding: 14px 16px; overflow-y: auto; }
   </style>
 </head>
 <body>
@@ -215,10 +298,9 @@ export class DashboardPanel {
     <button class="toolbar-btn" id="btn-settings">Settings</button>
   </div>
   <div class="tabs">
-    <button class="tab active" data-tab="overview">Overview</button>
-    <button class="tab" data-tab="activity">Activity</button>
+    <button class="tab active" data-tab="activity">Activity</button>
+    <button class="tab" data-tab="cost">Cost</button>
     <button class="tab" data-tab="models">Models</button>
-    <button class="tab" data-tab="budget">Budget</button>
   </div>
   <div class="range-selector">
     <button class="range-btn active" data-range="7d">7 Days</button>
@@ -227,6 +309,12 @@ export class DashboardPanel {
   </div>
   <div id="panel"><div class="empty">Loading…</div></div>
   <div class="updated-at" id="updated-at"></div>
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-head"><span id="modal-title"></span><button id="modal-close" aria-label="Close">✕</button></div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

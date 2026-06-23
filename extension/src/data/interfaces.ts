@@ -32,6 +32,16 @@ export interface ITurnLabelProvider {
 }
 
 /**
+ * Optional capability for span sources that can resolve tool/function call
+ * spans (operation_name = 'execute_tool') for a session. Kept separate from
+ * {@link ISpanRepository} so token-only sources are not forced to implement it.
+ */
+export interface IToolCallProvider {
+  /** Get tool/function call spans for a session. */
+  getToolSpansForSession(sessionId: string): Promise<Span[]>;
+}
+
+/**
  * Interface for resolving session display titles from state.vscdb.
  */
 export interface ISessionTitleResolver {

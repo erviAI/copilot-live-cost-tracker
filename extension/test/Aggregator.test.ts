@@ -434,4 +434,52 @@ describe('Aggregator', () => {
       expect(dashboard.currentSession.byModel).toHaveLength(2);
     });
   });
+
+  describe('aggregateSessionDetail tool-call binding', () => {
+    it('binds each tool call to the most recent preceding model call in the same agent', () => {
+      const t0 = 1_000_000;
+      const chatA = makeSpan({ spanId: 'chat-A', traceId: 'tr', parentSpanId: 'agent-1', startTimeMs: t0, endTimeMs: t0 + 100 });
+      const chatB = makeSpan({ spanId: 'chat-B', traceId: 'tr', parentSpanId: 'agent-1', startTimeMs: t0 + 1000, endTimeMs: t0 + 1100 });
+      const tool1 = makeSpan({ spanId: 'tool-1', traceId: 'tr', parentSpanId: 'agent-1', operationName: 'execute_tool', toolName: 'read_file', startTimeMs: t0 + 200, endTimeMs: t0 + 250 });
+      const tool2 = makeSpan({ spanId: 'tool-2', traceId: 'tr', parentSpanId: 'agent-1', operationName: 'execute_tool', toolName: 'grep_search', startTimeMs: t0 + 1200, endTimeMs: t0 + 1250 });
+
+      const detail = aggregator.aggregateSessionDetail('tr', [chatA, chatB], undefined, [tool1, tool2]);
+
+      expect(detail.turns).toHaveLength(1);
+      const turn = detail.turns[0];
+      const a = turn.spans.find(s => s.spanId === 'chat-A')!;
+      const b = turn.spans.find(s => s.spanId === 'chat-B')!;
+      expect(a.toolCalls?.map(t => t.toolName)).toEqual(['read_file']);
+      expect(b.toolCalls?.map(t => t.toolName)).toEqual(['grep_search']);
+      expect(turn.toolCalls).toBeUndefined();
+    });
+
+    it('isolates parallel agents so a tool never binds across agents', () => {
+      const t0 = 2_000_000;
+      // Two agents whose calls interleave in wall-clock time.
+      const chatX = makeSpan({ spanId: 'chat-X', traceId: 'tr', parentSpanId: 'agent-X', startTimeMs: t0, endTimeMs: t0 + 50 });
+      const chatY = makeSpan({ spanId: 'chat-Y', traceId: 'tr', parentSpanId: 'agent-Y', startTimeMs: t0 + 100, endTimeMs: t0 + 150 });
+      // Tool for agent X starts AFTER agent Y's chat, but must still bind to chat-X.
+      const toolX = makeSpan({ spanId: 'tool-X', traceId: 'tr', parentSpanId: 'agent-X', operationName: 'execute_tool', toolName: 'read_file', startTimeMs: t0 + 200, endTimeMs: t0 + 220 });
+
+      const detail = aggregator.aggregateSessionDetail('tr', [chatX, chatY], undefined, [toolX]);
+      const x = detail.turns[0].spans.find(s => s.spanId === 'chat-X')!;
+      const y = detail.turns[0].spans.find(s => s.spanId === 'chat-Y')!;
+      expect(x.toolCalls?.map(t => t.toolName)).toEqual(['read_file']);
+      expect(y.toolCalls).toBeUndefined();
+    });
+
+    it('keeps tool calls with no preceding model call as unbound at the turn level', () => {
+      const t0 = 3_000_000;
+      const chat = makeSpan({ spanId: 'chat-1', traceId: 'tr', parentSpanId: 'agent-1', startTimeMs: t0 + 1000, endTimeMs: t0 + 1100 });
+      // Tool starts before the chat span → cannot be attributed to it.
+      const orphan = makeSpan({ spanId: 'tool-orphan', traceId: 'tr', parentSpanId: 'agent-1', operationName: 'execute_tool', toolName: 'manage_todo_list', startTimeMs: t0, endTimeMs: t0 + 10 });
+
+      const detail = aggregator.aggregateSessionDetail('tr', [chat], undefined, [orphan]);
+      const turn = detail.turns[0];
+      expect(turn.spans[0].toolCalls).toBeUndefined();
+      expect(turn.toolCalls?.map(t => t.toolName)).toEqual(['manage_todo_list']);
+    });
+  });
 });
+

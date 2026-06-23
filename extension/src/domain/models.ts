@@ -139,8 +139,14 @@ export interface SpanDetail {
   outputTokens: number;
   cachedTokens: number;
   cacheWriteTokens: number;
+  reasoningTokens: number;
   totalCost: number;
   durationMs: number;
+  startTimeMs: number;
+  operationName: string | null;
+  toolName: string | null;
+  /** Tool / function calls this model call requested (bound by agent + time order). */
+  toolCalls?: ToolCall[];
 }
 
 /** Per-turn cost breakdown for session detail view */
@@ -161,6 +167,22 @@ export interface TurnCost {
   spans: SpanDetail[];
   /** Subagent calls nested within this turn */
   children?: TurnCost[];
+  /** Tool / function calls made while handling this turn */
+  toolCalls?: ToolCall[];
+}
+
+/** A tool / function invocation within a turn (operation_name = 'execute_tool'). */
+export interface ToolCall {
+  spanId: string;
+  traceId: string;
+  /** Span id of the owning agent (invoke_agent); used to bind tools to model calls. */
+  parentSpanId: string | null;
+  toolName: string;
+  operationName: string;
+  agentName: string | null;
+  startTimeMs: number;
+  durationMs: number;
+  status: 'ok' | 'error';
 }
 
 /** Per-model breakdown with rate and cache hit stats */
@@ -177,6 +199,12 @@ export interface SessionDetailData {
   byModel: ModelDetailBreakdown[];
   totalCost: number;
   totalLlmCalls: number;
+}
+
+/** A single user prompt across recent sessions, with its session context. */
+export interface RecentPrompt extends TurnCost {
+  sessionId: string;
+  sessionTitle: string;
 }
 
 /** Pricing rates for a model (all per 1M tokens) */
