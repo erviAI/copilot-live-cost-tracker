@@ -3,19 +3,16 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { CostHistoryService } from '../src/services/CostHistoryService.js';
-import type { DashboardData, SessionInfo, ModelCost } from '../src/domain/models.js';
+import { bucketSessionsByDay, sessionsToDailyAggregate } from '../src/domain/dailyAggregation.js';
+import type { SessionInfo, ModelCost, DailyAggregate } from '../src/domain/models.js';
 
-function makeDashboardData(overrides: Partial<DashboardData> = {}): DashboardData {
-  const emptyPeriod = { totalCost: 0, modelTurns: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, byModel: [] };
-  return {
-    today: emptyPeriod,
-    thisWeek: emptyPeriod,
-    currentSession: { ...emptyPeriod, sessionId: null, title: null, agentName: null, workspace: null, latestSpanTimeMs: null, spanCount: 0, contextWeightTokens: 0 },
-    last7Days: [],
-    recentSessions: [],
-    updatedAt: new Date().toISOString(),
-    ...overrides,
-  };
+/** Build the per-day aggregate map that CostHistoryService.persist() expects. */
+function dayMap(sessions: SessionInfo[]): Map<string, DailyAggregate> {
+  const result = new Map<string, DailyAggregate>();
+  for (const [date, daySessions] of bucketSessionsByDay(sessions)) {
+    result.set(date, sessionsToDailyAggregate(date, daySessions));
+  }
+  return result;
 }
 
 function makeSessionInfo(overrides: Partial<SessionInfo> = {}): SessionInfo {
@@ -69,12 +66,10 @@ describe('CostHistoryService', () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  describe('scrape', () => {
+  describe('persist', () => {
     it('creates current.json with today\'s sessions', async () => {
       const session = makeSessionInfo();
-      const data = makeDashboardData({ recentSessions: [session] });
-
-      await service.scrape(data);
+      await service.persist(dayMap([session]));
 
       const currentPath = path.join(tmpDir, 'cost-history', 'current.json');
       const content = JSON.parse(await fs.readFile(currentPath, 'utf-8'));
@@ -88,35 +83,85 @@ describe('CostHistoryService', () => {
       expect(content.sessions[0].byModel[0].model).toBe('claude-sonnet-4');
     });
 
-    it('filters sessions to today only', async () => {
-      const todaySession = makeSessionInfo({ sessionId: 'today-1' });
-      const yesterdaySession = makeSessionInfo({
-        sessionId: 'yesterday-1',
-        startedAt: Date.now() - 2 * 24 * 3600_000, // 2 days ago
-        endedAt: Date.now() - 2 * 24 * 3600_000 + 1800_000,
-      });
-      const data = makeDashboardData({ recentSessions: [todaySession, yesterdaySession] });
+    it('writes past days into daily files with retained sessions', async () => {
+      const twoDaysAgo = Date.now() - 2 * 24 * 3600_000;
+      const past = makeSessionInfo({ sessionId: 'past-1', startedAt: twoDaysAgo, endedAt: twoDaysAgo + 1800_000 });
+      await service.persist(dayMap([past]));
 
-      await service.scrape(data);
-
-      const currentPath = path.join(tmpDir, 'cost-history', 'current.json');
-      const content = JSON.parse(await fs.readFile(currentPath, 'utf-8'));
-
-      expect(content.sessions).toHaveLength(1);
-      expect(content.sessions[0].sessionId).toBe('today-1');
+      const date = formatDate(new Date(twoDaysAgo));
+      const dailyPath = path.join(tmpDir, 'cost-history', 'daily', `${date}.json`);
+      const daily = JSON.parse(await fs.readFile(dailyPath, 'utf-8'));
+      expect(daily.date).toBe(date);
+      expect(daily.sessionCount).toBe(1);
+      expect(daily.sessions).toHaveLength(1);
+      expect(daily.sessions[0].sessionId).toBe('past-1');
     });
 
-    it('overwrites current.json on subsequent scrapes', async () => {
-      const session1 = makeSessionInfo({ sessionId: 's1', totalCost: 0.10 });
-      await service.scrape(makeDashboardData({ recentSessions: [session1] }));
-
-      const session2 = makeSessionInfo({ sessionId: 's2', totalCost: 0.20 });
-      await service.scrape(makeDashboardData({ recentSessions: [session1, session2] }));
+    it('unions sessions across subsequent same-day persists', async () => {
+      const s1 = makeSessionInfo({ sessionId: 's1', totalCost: 0.10, byModel: [makeModelCost({ totalCost: 0.10 })] });
+      await service.persist(dayMap([s1]));
+      const s2 = makeSessionInfo({ sessionId: 's2', totalCost: 0.20, byModel: [makeModelCost({ totalCost: 0.20 })] });
+      await service.persist(dayMap([s1, s2]));
 
       const currentPath = path.join(tmpDir, 'cost-history', 'current.json');
       const content = JSON.parse(await fs.readFile(currentPath, 'utf-8'));
-
       expect(content.sessions).toHaveLength(2);
+    });
+  });
+
+  describe('monotonic max-merge', () => {
+    const twoDaysAgo = Date.now() - 2 * 24 * 3600_000;
+    const date = () => formatDate(new Date(twoDaysAgo));
+    const readDaily = async () =>
+      JSON.parse(await fs.readFile(path.join(tmpDir, 'cost-history', 'daily', `${date()}.json`), 'utf-8'));
+
+    it('never lowers a persisted daily total when the DB shrinks', async () => {
+      const full = makeSessionInfo({ sessionId: 'p1', startedAt: twoDaysAgo, endedAt: twoDaysAgo + 1, totalCost: 1.0, byModel: [makeModelCost({ totalCost: 1.0 })] });
+      await service.persist(dayMap([full]));
+      const shrunk = makeSessionInfo({ sessionId: 'p1', startedAt: twoDaysAgo, endedAt: twoDaysAgo + 1, totalCost: 0.25, byModel: [makeModelCost({ totalCost: 0.25 })] });
+      await service.persist(dayMap([shrunk]));
+
+      expect((await readDaily()).totalCost).toBeCloseTo(1.0);
+    });
+
+    it('keeps sessions that disappear from a later, smaller DB read', async () => {
+      const a = makeSessionInfo({ sessionId: 'a', startedAt: twoDaysAgo, endedAt: twoDaysAgo + 1, totalCost: 0.4, byModel: [makeModelCost({ totalCost: 0.4 })] });
+      const b = makeSessionInfo({ sessionId: 'b', startedAt: twoDaysAgo, endedAt: twoDaysAgo + 1, totalCost: 0.6, byModel: [makeModelCost({ totalCost: 0.6 })] });
+      await service.persist(dayMap([a, b]));
+      await service.persist(dayMap([b]));
+
+      const daily = await readDaily();
+      expect(daily.sessionCount).toBe(2);
+      expect(daily.totalCost).toBeCloseTo(1.0);
+    });
+
+    it('raises a persisted total when the session grows', async () => {
+      const small = makeSessionInfo({ sessionId: 'g', startedAt: twoDaysAgo, endedAt: twoDaysAgo + 1, totalCost: 0.2, byModel: [makeModelCost({ totalCost: 0.2 })] });
+      await service.persist(dayMap([small]));
+      const grown = makeSessionInfo({ sessionId: 'g', startedAt: twoDaysAgo, endedAt: twoDaysAgo + 1, totalCost: 0.9, byModel: [makeModelCost({ totalCost: 0.9 })] });
+      await service.persist(dayMap([grown]));
+
+      expect((await readDaily()).totalCost).toBeCloseTo(0.9);
+    });
+  });
+
+  describe('getSessionSnapshot', () => {
+    it('finds a session in current.json', async () => {
+      await service.persist(dayMap([makeSessionInfo({ sessionId: 'cur-1' })]));
+      const snap = await service.getSessionSnapshot('cur-1');
+      expect(snap?.sessionId).toBe('cur-1');
+      expect(snap?.byModel[0].model).toBe('claude-sonnet-4');
+    });
+
+    it('finds a session in a daily file', async () => {
+      const twoDaysAgo = Date.now() - 2 * 24 * 3600_000;
+      await service.persist(dayMap([makeSessionInfo({ sessionId: 'old-1', startedAt: twoDaysAgo, endedAt: twoDaysAgo + 1 })]));
+      const snap = await service.getSessionSnapshot('old-1');
+      expect(snap?.sessionId).toBe('old-1');
+    });
+
+    it('returns null when not found', async () => {
+      expect(await service.getSessionSnapshot('nope')).toBeNull();
     });
   });
 
@@ -167,9 +212,9 @@ describe('CostHistoryService', () => {
       };
       await fs.writeFile(path.join(historyDir, 'current.json'), JSON.stringify(oldCurrent));
 
-      // Scrape triggers rollup because current.json date != today
+      // Persisting today's data triggers rollup because current.json date != today
       const todaySession = makeSessionInfo({ sessionId: 'today-1' });
-      await service.scrape(makeDashboardData({ recentSessions: [todaySession] }));
+      await service.persist(dayMap([todaySession]));
 
       // Verify daily file was created
       const dailyPath = path.join(dailyDir, `${yesterdayStr}.json`);

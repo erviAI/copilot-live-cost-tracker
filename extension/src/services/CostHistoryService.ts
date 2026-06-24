@@ -1,14 +1,15 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import type {
-  DashboardData,
-  SessionInfo,
   CurrentDayData,
   DailyAggregate,
   SessionSnapshot,
-  ModelCostSnapshot,
-  WorkspaceCost,
 } from '../domain/models.js';
+import {
+  aggregateSnapshots,
+  mergeDailyAggregates,
+  localDateString,
+} from '../domain/dailyAggregation.js';
 import { logger } from '../logger.js';
 
 /**
@@ -44,32 +45,50 @@ export class CostHistoryService {
   }
 
   /**
-   * Main entry point: scrape the current dashboard data into history files.
-   * Called periodically by CostTrackingService.
+   * Persist a set of per-day aggregates into history files.
+   *
+   * Today's aggregate is written to `current.json`; past days are max-merged into
+   * their `daily/YYYY-MM-DD.json` files so previously-recorded totals never
+   * decrease (protecting against the source DB being partially cleaned).
+   *
+   * Called periodically by CostTrackingService and on startup for backfill.
    */
-  async scrape(data: DashboardData): Promise<void> {
+  async persist(days: Map<string, DailyAggregate>): Promise<void> {
     try {
       await this.ensureDirectories();
 
       const today = localDateString(Date.now());
 
-      // Check if a day rollover happened
+      // Roll over a stale current.json (e.g. extension ran past midnight).
       const existing = await this.readCurrentDay();
       if (existing && existing.date !== today) {
         await this.rollup(existing);
       }
 
-      // Build today's session snapshots from dashboard data
-      const sessions = this.buildSessionSnapshots(data, today);
-      const currentDay: CurrentDayData = {
-        date: today,
-        lastUpdatedAt: new Date().toISOString(),
-        sessions,
-      };
-
-      await this.atomicWrite(this.currentPath, currentDay);
+      for (const [date, agg] of days) {
+        if (date === today) {
+          // Merge with any existing same-day current.json so a partially-cleaned
+          // DB read can only add sessions / raise costs, never drop them.
+          const existingToday =
+            existing && existing.date === today
+              ? aggregateSnapshots(today, existing.sessions)
+              : null;
+          const merged = mergeDailyAggregates(existingToday, agg);
+          const currentDay: CurrentDayData = {
+            date: today,
+            lastUpdatedAt: new Date().toISOString(),
+            sessions: merged.sessions ?? [],
+          };
+          await this.atomicWrite(this.currentPath, currentDay);
+        } else {
+          const dailyPath = path.join(this.dailyDir, `${date}.json`);
+          const prior = await this.readDaily(date);
+          const merged = mergeDailyAggregates(prior, agg);
+          await this.atomicWrite(dailyPath, merged);
+        }
+      }
     } catch (err) {
-      logger.error('History scrape error:', err);
+      logger.error('History persist error:', err);
     }
   }
 
@@ -156,102 +175,46 @@ export class CostHistoryService {
     return this.readCurrentDay();
   }
 
+  /**
+   * Find a persisted per-session snapshot by id, searching today's current.json
+   * first and then daily files newest-first. Returns null when not found.
+   * Used to reconstruct a session's per-model breakdown after its live spans are
+   * purged from agent-traces.db.
+   */
+  async getSessionSnapshot(sessionId: string): Promise<SessionSnapshot | null> {
+    const current = await this.readCurrentDay();
+    const fromCurrent = current?.sessions.find(s => s.sessionId === sessionId);
+    if (fromCurrent) return fromCurrent;
+
+    let entries: string[];
+    try {
+      entries = await fs.readdir(this.dailyDir);
+    } catch {
+      return null;
+    }
+
+    const dailyFiles = entries.filter(e => e.endsWith('.json')).sort().reverse();
+    for (const entry of dailyFiles) {
+      const date = entry.replace('.json', '');
+      const agg = await this.readDaily(date);
+      const found = agg?.sessions?.find(s => s.sessionId === sessionId);
+      if (found) return found;
+    }
+    return null;
+  }
+
   // --- Private Helpers ---
 
-  private buildSessionSnapshots(data: DashboardData, today: string): SessionSnapshot[] {
-    // Use recentSessions from dashboard, filter to today only
-    const todaySessions = data.recentSessions.filter(s => {
-      const sessionDate = localDateString(s.startedAt);
-      return sessionDate === today;
-    });
-
-    return todaySessions.map(s => this.sessionInfoToSnapshot(s));
-  }
-
-  private sessionInfoToSnapshot(s: SessionInfo): SessionSnapshot {
-    // SessionInfo doesn't have byModel or full token breakdowns at the top level,
-    // so we capture what's available. The dashboard's today PeriodCost has byModel
-    // but it's aggregated across sessions. Per-session detail needs to come from
-    // the session info fields available.
-    return {
-      sessionId: s.sessionId,
-      title: s.title,
-      workspace: s.workspace,
-      totalCost: s.totalCost,
-      modelTurns: s.modelTurns,
-      inputTokens: s.inputTokens,
-      outputTokens: s.outputTokens,
-      cachedTokens: s.cachedTokens,
-      cacheWriteTokens: s.cacheWriteTokens,
-      byModel: s.byModel.map(m => ({
-        model: m.model,
-        calls: m.calls,
-        inputTokens: m.inputTokens,
-        outputTokens: m.outputTokens,
-        cachedTokens: m.cachedTokens,
-        cacheWriteTokens: m.cacheWriteTokens,
-        totalCost: m.totalCost,
-      })),
-      startedAt: s.startedAt,
-      endedAt: s.endedAt,
-    };
-  }
-
+  /** Roll a stale current.json day into its daily file (max-merged). */
   private async rollup(currentDay: CurrentDayData): Promise<void> {
     const { date, sessions } = currentDay;
 
-    // Aggregate by model
-    const modelMap = new Map<string, ModelCostSnapshot>();
-    for (const session of sessions) {
-      for (const m of session.byModel) {
-        const existing = modelMap.get(m.model);
-        if (existing) {
-          existing.calls += m.calls;
-          existing.inputTokens += m.inputTokens;
-          existing.outputTokens += m.outputTokens;
-          existing.cachedTokens += m.cachedTokens;
-          existing.cacheWriteTokens += m.cacheWriteTokens;
-          existing.totalCost += m.totalCost;
-        } else {
-          modelMap.set(m.model, { ...m });
-        }
-      }
-    }
-
-    // Aggregate by workspace
-    const workspaceMap = new Map<string, WorkspaceCost>();
-    for (const session of sessions) {
-      const ws = session.workspace ?? 'unknown';
-      const existing = workspaceMap.get(ws);
-      if (existing) {
-        existing.totalCost += session.totalCost;
-        existing.modelTurns += session.modelTurns;
-        existing.sessionCount += 1;
-      } else {
-        workspaceMap.set(ws, {
-          workspace: ws,
-          totalCost: session.totalCost,
-          modelTurns: session.modelTurns,
-          sessionCount: 1,
-        });
-      }
-    }
-
-    const aggregate: DailyAggregate = {
-      date,
-      totalCost: sessions.reduce((sum, s) => sum + s.totalCost, 0),
-      modelTurns: sessions.reduce((sum, s) => sum + s.modelTurns, 0),
-      inputTokens: sessions.reduce((sum, s) => sum + s.inputTokens, 0),
-      outputTokens: sessions.reduce((sum, s) => sum + s.outputTokens, 0),
-      cachedTokens: sessions.reduce((sum, s) => sum + s.cachedTokens, 0),
-      cacheWriteTokens: sessions.reduce((sum, s) => sum + s.cacheWriteTokens, 0),
-      byModel: [...modelMap.values()].sort((a, b) => b.totalCost - a.totalCost),
-      byWorkspace: [...workspaceMap.values()].sort((a, b) => b.totalCost - a.totalCost),
-      sessionCount: sessions.length,
-    };
+    const aggregate = aggregateSnapshots(date, sessions);
+    const prior = await this.readDaily(date);
+    const merged = mergeDailyAggregates(prior, aggregate);
 
     const dailyPath = path.join(this.dailyDir, `${date}.json`);
-    await this.atomicWrite(dailyPath, aggregate);
+    await this.atomicWrite(dailyPath, merged);
 
     // Reset current.json for the new day
     const fresh: CurrentDayData = {
@@ -273,18 +236,18 @@ export class CostHistoryService {
     }
   }
 
+  private async readDaily(date: string): Promise<DailyAggregate | null> {
+    try {
+      const content = await fs.readFile(path.join(this.dailyDir, `${date}.json`), 'utf-8');
+      return JSON.parse(content) as DailyAggregate;
+    } catch {
+      return null;
+    }
+  }
+
   private async atomicWrite(filePath: string, data: unknown): Promise<void> {
     const tmp = filePath + '.tmp';
     await fs.writeFile(tmp, JSON.stringify(data, null, 2), 'utf-8');
     await fs.rename(tmp, filePath);
   }
-}
-
-/** Format a timestamp as local YYYY-MM-DD */
-function localDateString(ms: number): string {
-  const d = new Date(ms);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }

@@ -62,11 +62,14 @@ export function activate(context: vscode.ExtensionContext): void {
       context.globalStorageUri.fsPath,
       getHistoryRetentionDays
     );
-    trackingService.setHistoryService(historyService, getHistoryScrapeInterval());
+    trackingService.setHistoryService(historyService, getHistoryScrapeInterval(), getHistoryRetentionDays);
     // Check if a day rollover happened while extension was inactive
     historyService.checkRollup();
     // Prune old history files on activation
     historyService.prune();
+    // Backfill durable history from the agent-traces.db window still on disk, so
+    // days recorded while the extension was inactive survive the next DB cleanup.
+    void trackingService.backfillFromDb();
   }
 
   // --- Presentation ---

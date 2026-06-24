@@ -223,9 +223,18 @@ export class Aggregator {
   }
 
   /**
-   * Build recent session summaries from spans.
+   * Build session summaries from spans (uncapped). Used by the history layer to
+   * persist every session in the window, not just the most recent ones.
    */
-  private buildRecentSessions(spans: Span[], titles: Map<string, string>, workspaces?: Map<string, string | null>): SessionInfo[] {
+  buildSessions(spans: Span[], titles: Map<string, string>, workspaces?: Map<string, string | null>): SessionInfo[] {
+    return this.buildRecentSessions(spans, titles, workspaces, Infinity);
+  }
+
+  /**
+   * Build recent session summaries from spans.
+   * @param limit Maximum number of (most recent) sessions to return.
+   */
+  private buildRecentSessions(spans: Span[], titles: Map<string, string>, workspaces?: Map<string, string | null>, limit = 20): SessionInfo[] {
     // Only include spans that belong to a real chat session (have chat_session_id).
     // Spans with only conversation_id are background/inline completions, not user sessions.
     // Also exclude spans from ignored utility agents (e.g. copilotLanguageModelWrapper).
@@ -271,7 +280,7 @@ export class Aggregator {
       });
     }
 
-    return sessionInfos.sort((a, b) => b.endedAt - a.endedAt).slice(0, 20);
+    return sessionInfos.sort((a, b) => b.endedAt - a.endedAt).slice(0, limit);
   }
 
   /**

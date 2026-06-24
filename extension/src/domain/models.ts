@@ -199,6 +199,12 @@ export interface SessionDetailData {
   byModel: ModelDetailBreakdown[];
   totalCost: number;
   totalLlmCalls: number;
+  /**
+   * True when this detail was reconstructed from persisted history because the
+   * live per-turn spans are no longer in agent-traces.db (the DB was cleaned).
+   * In that case `turns` is empty and only the per-model breakdown is available.
+   */
+  historic?: boolean;
 }
 
 /** A single user prompt across recent sessions, with its session context. */
@@ -277,6 +283,12 @@ export interface DailyAggregate {
   byModel: ModelCostSnapshot[];
   byWorkspace: WorkspaceCost[];
   sessionCount: number;
+  /**
+   * Per-session snapshots for this day. Retained so historic sessions can still
+   * show a per-model breakdown after their spans are purged from agent-traces.db.
+   * Optional for backward-compatibility with daily files written before this field.
+   */
+  sessions?: SessionSnapshot[];
 }
 
 /** Preset windows for the global date-range filter. */

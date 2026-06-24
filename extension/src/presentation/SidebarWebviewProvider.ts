@@ -664,10 +664,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
         rangeSummary = msg.summary;
         updateRangeSection();
       } else if (msg.type === 'sessionDetail') {
-        if (msg.data) {
-          sessionDetailCache[msg.sessionId] = msg.data;
-          renderSessionDetailInline(msg.sessionId, msg.data);
-        }
+        sessionDetailCache[msg.sessionId] = msg.data;
+        renderSessionDetailInline(msg.sessionId, msg.data);
       }
     });
 
@@ -1057,7 +1055,17 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
       const detailEl = document.getElementById('detail-' + sessionId);
       if (!detailEl) return;
 
+      if (!data) {
+        detailEl.innerHTML = '<div class="detail-msg">Detailed data for this session is no longer available.</div>';
+        return;
+      }
+
       let html = '';
+
+      // Historic sessions are reconstructed from saved history (no per-turn spans).
+      if (data.historic) {
+        html += '<div class="detail-msg">Per-prompt detail is not retained for older sessions. Showing the saved per-model summary.</div>';
+      }
 
       // Per-model breakdown
       html += '<div class="detail-section"><div class="detail-section-title">LLM Requests by Model (' + data.totalLlmCalls + ' total)</div>';
