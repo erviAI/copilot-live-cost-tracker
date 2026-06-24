@@ -473,7 +473,7 @@ function renderSpansTable(spans: SpanDetail[]): string {
     const tools = sp.toolCalls ?? [];
     const hasTools = tools.length > 0;
     const expanded = hasTools && spanToolsExpanded[sp.spanId];
-    const toolLabel = tools.length === 1 ? escapeHtml(tools[0].toolName) : String(tools.length);
+    const toolLabel = tools.length === 1 ? escapeHtml(tools[0].toolName) : String(tools.length) + ' Calls';
     const toolCell = hasTools
       ? '<span class="section-chevron">' + (expanded ? '▾' : '▸') + '</span> ' + toolLabel
       : '—';
