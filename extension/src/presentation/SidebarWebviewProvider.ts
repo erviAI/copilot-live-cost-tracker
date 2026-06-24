@@ -540,6 +540,49 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
       margin-top: 12px;
     }
 
+    details.section-collapsible {
+      margin-bottom: 16px;
+      padding: 12px;
+      border: 1px solid var(--card-border);
+      border-radius: 4px;
+      background: var(--card-bg);
+    }
+
+    details.section-collapsible > summary {
+      list-style: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    details.section-collapsible > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    details.section-collapsible[open] > summary {
+      margin-bottom: 8px;
+    }
+
+    .section-title {
+      font-size: 0.75em;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-secondary);
+      font-weight: 600;
+    }
+
+    .section-summary-value {
+      font-size: 0.8em;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    details.section-collapsible[open] .section-summary-value {
+      display: none;
+    }
+
     details.subsection {
       margin-top: 8px;
       border-top: 1px solid var(--card-border);
@@ -654,14 +697,15 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
         return;
       }
 
+      var last7DaysTotal = (data.last7Days || []).reduce(function(s, d) { return s + (d.totalCost || 0); }, 0);
       const html = [
         bannerHtml,
-        renderSection('TODAY', renderCostCard(data.today, budgetState?.dailyLevel) + renderCollapsibleModel('today-model', data.today.byModel) + renderCollapsibleWorkspace('today-ws', data.today.byWorkspace)),
-        renderSection('CURRENT SESSION', renderCurrentSessionCard(data.currentSession, budgetState?.sessionLevel)),
-        renderSection('RECENT SESSIONS', renderSessionList(data.recentSessions)),
-        renderSection('THIS WEEK', renderCostCard(data.thisWeek, budgetState?.weeklyLevel) + renderCollapsibleModel('week-model', data.thisWeek.byModel) + renderCollapsibleWorkspace('week-ws', data.thisWeek.byWorkspace)),
-        '<div class="section"><div class="section-header">DATE RANGE</div>' + renderRangeSelector() + '<div id="range-body">' + renderRangeBody() + '</div></div>',
-        renderSection('LAST 7 DAYS', renderChart(data.last7Days)),
+        renderCollapsibleSection('today', 'TODAY', renderCostCard(data.today, budgetState?.dailyLevel) + renderCollapsibleModel('today-model', data.today.byModel) + renderCollapsibleWorkspace('today-ws', data.today.byWorkspace), formatCost(data.today.totalCost)),
+        renderCollapsibleSection('currentSession', 'CURRENT SESSION', renderCurrentSessionCard(data.currentSession, budgetState?.sessionLevel), formatCost(data.currentSession.totalCost)),
+        renderCollapsibleSection('recentSessions', 'RECENT SESSIONS', renderSessionList(data.recentSessions), (data.recentSessions ? data.recentSessions.length : 0) + ' sessions'),
+        renderCollapsibleSection('thisWeek', 'THIS WEEK', renderCostCard(data.thisWeek, budgetState?.weeklyLevel) + renderCollapsibleModel('week-model', data.thisWeek.byModel) + renderCollapsibleWorkspace('week-ws', data.thisWeek.byWorkspace), formatCost(data.thisWeek.totalCost)),
+        renderCollapsibleSection('dateRange', 'DATE RANGE', renderRangeSelector() + '<div id="range-body">' + renderRangeBody() + '</div>', RANGE_LABELS[selectedRange]),
+        renderCollapsibleSection('last7days', 'LAST 7 DAYS', renderChart(data.last7Days), formatCost(last7DaysTotal)),
         '<div class="updated-at">Updated: ' + formatTime(data.updatedAt) + '</div>',
       ].join('');
 
@@ -673,6 +717,11 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
       });
       // Track open/close changes
       document.querySelectorAll('details.subsection[id]').forEach(function(el) {
+        el.addEventListener('toggle', function() { detailsOpenState[el.id] = el.open; });
+      });
+      // Restore collapsed state of top-level sections (default: open)
+      document.querySelectorAll('details.section-collapsible[id]').forEach(function(el) {
+        if (detailsOpenState[el.id] === false) { el.open = false; }
         el.addEventListener('toggle', function() { detailsOpenState[el.id] = el.open; });
       });
 
@@ -707,6 +756,16 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
 
     function renderSection(title, body) {
       return '<div class="section"><div class="section-header">' + title + '</div>' + body + '</div>';
+    }
+
+    function renderCollapsibleSection(id, title, body, summaryValue) {
+      return '<details class="section-collapsible" id="section-' + id + '" open>' +
+        '<summary>' +
+        '<span class="section-title">' + title + '</span>' +
+        (summaryValue ? '<span class="section-summary-value">' + escapeHtml(String(summaryValue)) + '</span>' : '') +
+        '</summary>' +
+        body +
+        '</details>';
     }
 
     var RANGE_LABELS = { '7d': '7 Days', '30d': '30 Days', '90d': '90 Days' };
