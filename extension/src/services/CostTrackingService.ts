@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
 import type { ISpanRepository, ISessionTitleResolver, ITurnLabelProvider, IToolCallProvider } from '../data/interfaces.js';
-import type { Span, DashboardData, SessionDetailData, DataSourceStatus, PeriodCost, RangePreset, RangeSummary, RecentPrompt } from '../domain/models.js';
+import type { Span, DashboardData, SessionDetailData, DataSourceStatus, PeriodCost, RangePreset, RangeSummary, RecentPrompt, DailyAggregate, ModelDetailBreakdown } from '../domain/models.js';
 import type { CostDataSource } from '../config.js';
 import type { CostHistoryService } from './CostHistoryService.js';
 import { Aggregator } from '../domain/Aggregator.js';
 import { buildRangeSummary, periodCostToDailyAggregate, RANGE_PRESETS } from '../domain/rangeSummary.js';
+import { bucketSessionsByDay, sessionsToDailyAggregate } from '../domain/dailyAggregation.js';
 import { isIgnoredAgent } from '../domain/filters.js';
 import { isSubagentSessionId } from '../domain/sessionIds.js';
 import { logger } from '../logger.js';
@@ -27,6 +28,7 @@ export class CostTrackingService implements vscode.Disposable {
   private pollCount = 0;
   private historyService: CostHistoryService | null = null;
   private historyScrapeInterval = 30;
+  private getHistoryRetentionDays: () => number = () => 90;
 
   constructor(
     private readonly spanRepo: ISpanRepository,
@@ -40,9 +42,10 @@ export class CostTrackingService implements vscode.Disposable {
   ) {}
 
   /** Attach a history service for periodic persistence */
-  setHistoryService(service: CostHistoryService, scrapeInterval: number): void {
+  setHistoryService(service: CostHistoryService, scrapeInterval: number, getRetentionDays?: () => number): void {
     this.historyService = service;
     this.historyScrapeInterval = scrapeInterval;
+    if (getRetentionDays) this.getHistoryRetentionDays = getRetentionDays;
   }
 
   /** Update how often (in poll cycles) data is scraped to history. */
@@ -59,6 +62,50 @@ export class CostTrackingService implements vscode.Disposable {
   /** Force an immediate refresh */
   async refresh(): Promise<void> {
     await this.poll();
+  }
+
+  /**
+   * Backfill persisted history from the full agent-traces.db window available on
+   * disk. Run on startup so days still present in the DB (e.g. while the
+   * extension was inactive) are durably persisted before the DB is next cleaned.
+   */
+  async backfillFromDb(): Promise<void> {
+    if (!this.historyService) return;
+    try {
+      if (!(await this.spanRepo.isAvailable())) return;
+      const days = this.getHistoryRetentionDays();
+      const since = Date.now() - days * 24 * 60 * 60 * 1000;
+      const spans = await this.spanRepo.getSpansSince(since);
+      if (spans.length === 0) return;
+
+      this.titleResolver.invalidateCache();
+      const titles = await this.titleResolver.getAllTitles();
+      const workspaces = await this.titleResolver.getAllWorkspaces();
+      const dayAggregates = this.buildDayAggregates(spans, titles, workspaces);
+      await this.historyService.persist(dayAggregates);
+      logger.info(`Backfilled history for ${dayAggregates.size} day(s) from agent-traces.db`);
+    } catch (err) {
+      logger.warn('History backfill failed (continuing):', err);
+    }
+  }
+
+  /**
+   * Group spans into per-day aggregates (with retained per-session snapshots),
+   * bucketed by each session's local start day. Used by both periodic scraping
+   * and startup backfill.
+   */
+  private buildDayAggregates(
+    spans: Span[],
+    titles: Map<string, string>,
+    workspaces: Map<string, string | null>
+  ): Map<string, DailyAggregate> {
+    const sessions = this.aggregator.buildSessions(spans, titles, workspaces);
+    const byDay = bucketSessionsByDay(sessions);
+    const result = new Map<string, DailyAggregate>();
+    for (const [date, daySessions] of byDay) {
+      result.set(date, sessionsToDailyAggregate(date, daySessions));
+    }
+    return result;
   }
 
   /** Get the latest dashboard data (cached) */
@@ -102,9 +149,18 @@ export class CostTrackingService implements vscode.Disposable {
 
   /** Get detailed breakdown for a specific session (lazy-loaded on expand) */
   async getSessionDetail(sessionId: string): Promise<SessionDetailData | null> {
+    let spans: Span[] = [];
     try {
-      const spans = await this.spanRepo.getSpansForSession(sessionId);
-      if (spans.length === 0) return null;
+      spans = await this.spanRepo.getSpansForSession(sessionId);
+    } catch (err) {
+      logger.warn('getSessionDetail span fetch failed (trying history fallback):', err);
+    }
+    // Live spans are gone (DB cleaned) — reconstruct a per-model-only view from
+    // persisted history so the modal can still show something useful.
+    if (spans.length === 0) {
+      return this.historicSessionDetail(sessionId);
+    }
+    try {
       // Fetch turn labels from agent-traces.db (keyed by traceId) when a provider is available.
       let turnLabels: Map<string, string> | undefined;
       if (this.turnLabelProvider) {
@@ -117,6 +173,47 @@ export class CostTrackingService implements vscode.Disposable {
       return this.aggregator.aggregateSessionDetail(sessionId, spans, turnLabels, toolSpans);
     } catch (err) {
       logger.error('getSessionDetail error:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Reconstruct a session's per-model breakdown from persisted history when its
+   * live per-turn spans are no longer in agent-traces.db. Returns null when no
+   * snapshot exists. The result has no per-turn detail (`turns` is empty) and is
+   * flagged `historic` so the UI can explain the missing detail.
+   */
+  private async historicSessionDetail(sessionId: string): Promise<SessionDetailData | null> {
+    if (!this.historyService) return null;
+    try {
+      const snap = await this.historyService.getSessionSnapshot(sessionId);
+      if (!snap) return null;
+      const byModel: ModelDetailBreakdown[] = snap.byModel.map(m => ({
+        model: m.model,
+        calls: m.calls,
+        inputTokens: m.inputTokens,
+        outputTokens: m.outputTokens,
+        cachedTokens: m.cachedTokens,
+        cacheWriteTokens: m.cacheWriteTokens,
+        freshInputCost: 0,
+        cacheReadCost: 0,
+        cacheWriteCost: 0,
+        outputCost: 0,
+        totalCost: m.totalCost,
+        avgDurationMs: 0,
+        rateTokensPerSec: 0,
+        cacheHitPct: m.inputTokens > 0 ? Math.round((100 * m.cachedTokens) / m.inputTokens) : 0,
+      }));
+      return {
+        sessionId,
+        turns: [],
+        byModel,
+        totalCost: snap.totalCost,
+        totalLlmCalls: snap.byModel.reduce((sum, m) => sum + m.calls, 0),
+        historic: true,
+      };
+    } catch (err) {
+      logger.warn('historicSessionDetail failed:', err);
       return null;
     }
   }
@@ -239,7 +336,8 @@ export class CostTrackingService implements vscode.Disposable {
       // Periodically scrape to history files
       this.pollCount++;
       if (this.historyService && this.pollCount % this.historyScrapeInterval === 0) {
-        this.historyService.scrape(this.lastData);
+        const dayAggregates = this.buildDayAggregates(spans, titles, sessionWorkspaces);
+        void this.historyService.persist(dayAggregates);
       }
     } catch (err) {
       // Log but don't crash — the extension should be resilient
@@ -334,8 +432,8 @@ export class CostTrackingService implements vscode.Disposable {
 
   /** Flush history to disk (call on deactivation) */
   async flushHistory(): Promise<void> {
-    if (this.historyService && this.lastData) {
-      await this.historyService.scrape(this.lastData);
+    if (this.historyService) {
+      await this.backfillFromDb();
     }
   }
 
