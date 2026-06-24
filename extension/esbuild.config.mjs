@@ -4,6 +4,31 @@ import * as path from 'path';
 
 const watch = process.argv.includes('--watch');
 
+/**
+ * Emits explicit start/finish markers on every (re)build so the VS Code
+ * background problem matcher can reliably detect when a watch rebuild begins
+ * and ends. Without this, incremental rebuilds leave the matcher stuck in the
+ * "building" state and debugging hangs on "waiting for preLaunchTask...".
+ * @type {import('esbuild').Plugin}
+ */
+const watchMarkerPlugin = {
+  name: 'watch-marker',
+  setup(build) {
+    build.onStart(() => {
+      console.log('[watch] build started');
+    });
+    build.onEnd((result) => {
+      for (const { text, location } of result.errors) {
+        console.error(`✘ [ERROR] ${text}`);
+        if (location) {
+          console.error(`    ${location.file}:${location.line}:${location.column}:`);
+        }
+      }
+      console.log('[watch] build finished');
+    });
+  },
+};
+
 /** @type {import('esbuild').BuildOptions} */
 const buildOptions = {
   entryPoints: ['src/extension.ts'],
@@ -15,6 +40,7 @@ const buildOptions = {
   target: 'node20',
   sourcemap: watch,
   minify: !watch,
+  plugins: watch ? [watchMarkerPlugin] : [],
 };
 
 /**
@@ -31,6 +57,7 @@ const webviewOptions = {
   target: 'es2020',
   sourcemap: watch,
   minify: !watch,
+  plugins: watch ? [watchMarkerPlugin] : [],
 };
 
 // Copy the worker script to dist/ (it runs in a separate node process)

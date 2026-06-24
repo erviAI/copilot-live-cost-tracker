@@ -11,16 +11,13 @@
         "owner": "esbuild",
         "fileLocation": ["relative", "${workspaceFolder}/extension"],
         "pattern": {
-          "regexp": "^✘ \\[ERROR\\] (.+?)\\n\\n\\s+(.+?):(\\d+):(\\d+):",
-          "message": 1,
-          "file": 2,
-          "line": 3,
-          "column": 4
+          "regexp": "^✘ \\[ERROR\\] (.+)$",
+          "message": 1
         },
         "background": {
           "activeOnStart": true,
-          "beginsPattern": ".",
-          "endsPattern": "Watching for changes\\.\\.\\."
+          "beginsPattern": "^\\[watch\\] build started$",
+          "endsPattern": "^\\[watch\\] build finished$"
         }
       }
     },
