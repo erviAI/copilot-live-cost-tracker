@@ -231,6 +231,27 @@ export class DashboardPanel {
     .prompts-label { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .prompts-muted { color: var(--text-secondary); font-style: italic; }
 
+    /* Session-grouped Activity rows */
+    .session-row { cursor: pointer; }
+    .session-row > td { font-weight: 600; background: rgba(127,127,127,0.05); }
+    .session-row:hover > td { background: var(--card-border); }
+    .session-cell { max-width: 220px; color: var(--accent, #3584e4); }
+    .session-cell:hover { text-decoration: underline; }
+    .session-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .session-expand-cell { display: flex; align-items: center; gap: 6px; }
+    .session-expand-cell .section-chevron { flex-shrink: 0; }
+    .prompt-subrow .prompt-indent { padding-left: 22px; }
+
+    /* Session modal: per-prompt entries */
+    .session-prompts { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .session-prompt { border: 1px solid var(--card-border); border-radius: 6px; overflow: hidden; }
+    .session-prompt-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; user-select: none; }
+    .session-prompt-head:hover { background: var(--card-border); }
+    .session-prompt-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.88em; }
+    .session-prompt-totals { flex-shrink: 0; font-size: 0.78em; color: var(--text-secondary); white-space: nowrap; }
+    .session-prompt-body { padding: 8px 10px; border-top: 1px solid var(--card-border); }
+    .session-prompt-body.hidden { display: none; }
+
     /* Collapsible sections */
     .section { margin-bottom: 16px; }
     .section-head { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; padding: 6px 0; font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); font-weight: 600; }
