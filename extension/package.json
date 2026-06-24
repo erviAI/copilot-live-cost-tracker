@@ -45,7 +45,7 @@
       "activitybar": [
         {
           "id": "copilot-live-cost-tracker",
-          "title": "Copilot Cost",
+          "title": "Copilot Live Cost & Token Tracker",
           "icon": "resources/icon.svg"
         }
       ]
@@ -63,28 +63,28 @@
       {
         "command": "copilotLiveCostTracker.refresh",
         "title": "Refresh Cost Data",
-        "category": "Copilot Cost",
+        "category": "Copilot Live Cost & Token Tracker",
         "icon": "$(refresh)"
       },
       {
         "command": "copilotLiveCostTracker.resetSession",
         "title": "Reset Session Tracking",
-        "category": "Copilot Cost"
+        "category": "Copilot Live Cost & Token Tracker"
       },
       {
         "command": "copilotLiveCostTracker.openDashboard",
         "title": "Open Dashboard",
-        "category": "Copilot Cost"
+        "category": "Copilot Live Cost & Token Tracker"
       },
       {
         "command": "copilotLiveCostTracker.openSettings",
         "title": "Open Settings",
-        "category": "Copilot Cost"
+        "category": "Copilot Live Cost & Token Tracker"
       },
       {
         "command": "copilotLiveCostTracker.enableOtel",
         "title": "Enable OpenTelemetry Tracing",
-        "category": "Copilot Cost"
+        "category": "Copilot Live Cost & Token Tracker"
       }
     ],
     "menus": {
@@ -206,8 +206,9 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "build": "node esbuild.config.mjs",
-    "watch": "node esbuild.config.mjs --watch",
+    "check-native": "node scripts/check-native.mjs",
+    "build": "node scripts/check-native.mjs && node esbuild.config.mjs",
+    "watch": "node scripts/check-native.mjs && node esbuild.config.mjs --watch",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json && tsc --noEmit -p tsconfig.webview.json",
     "lint": "eslint .",
     "format": "prettier --write .",

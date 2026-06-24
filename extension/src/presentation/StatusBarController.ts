@@ -15,8 +15,8 @@ export class StatusBarController implements vscode.Disposable {
       50
     );
     this.statusBarItem.command = 'copilotLiveCostTracker.openDashboard';
-    this.statusBarItem.tooltip = 'Click to open Copilot Cost Dashboard';
-    this.statusBarItem.text = '$(pulse) Copilot Cost: --';
+    this.statusBarItem.tooltip = 'Click to open Copilot Live Cost & Token Tracker';
+    this.statusBarItem.text = '$(pulse) Copilot Live Cost: --';
     this.statusBarItem.show();
   }
 
@@ -24,7 +24,7 @@ export class StatusBarController implements vscode.Disposable {
   update(data: DashboardData, budgetState: BudgetState): void {
     // Check for data source unavailability first
     if (data.dataSourceStatus?.source === 'none') {
-      this.statusBarItem.text = '$(warning) Copilot Cost: No Data';
+      this.statusBarItem.text = '$(warning) Copilot Live Cost: No Data';
       this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
       this.statusBarItem.tooltip = this.buildUnavailableTooltip(data.dataSourceStatus);
       return;

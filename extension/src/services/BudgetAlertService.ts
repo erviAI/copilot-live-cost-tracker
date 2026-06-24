@@ -95,11 +95,11 @@ export class BudgetAlertService implements vscode.Disposable {
 
     if (level === 'warning') {
       this.notifier.warn(
-        `Copilot Cost: ${scopeLabel} spend ${costStr} has reached the warning threshold ($${threshold.warning}).`
+        `Copilot Live Cost: ${scopeLabel} spend ${costStr} has reached the warning threshold ($${threshold.warning}).`
       );
     } else if (level === 'limit') {
       this.notifier.error(
-        `Copilot Cost: ${scopeLabel} spend ${costStr} has exceeded the limit ($${threshold.limit})!`
+        `Copilot Live Cost: ${scopeLabel} spend ${costStr} has exceeded the limit ($${threshold.limit})!`
       );
     }
   }
