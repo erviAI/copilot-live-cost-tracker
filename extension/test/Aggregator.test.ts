@@ -480,6 +480,28 @@ describe('Aggregator', () => {
       expect(turn.spans[0].toolCalls).toBeUndefined();
       expect(turn.toolCalls?.map(t => t.toolName)).toEqual(['manage_todo_list']);
     });
+
+    it('attaches tool args/result/statusMessage and per-turn prompt/response text', () => {
+      const t0 = 4_000_000;
+      const chat = makeSpan({ spanId: 'chat-1', traceId: 'tr', parentSpanId: 'agent-1', turnIndex: 0, startTimeMs: t0, endTimeMs: t0 + 100 });
+      const tool = makeSpan({
+        spanId: 'tool-1', traceId: 'tr', parentSpanId: 'agent-1', operationName: 'execute_tool',
+        toolName: 'read_file', startTimeMs: t0 + 200, endTimeMs: t0 + 250,
+        statusCode: 2, statusMessage: 'file not found',
+        toolArgs: '{"filePath":"a.ts","startLine":1,"endLine":40}', toolResult: 'contents…',
+      });
+      const turnTexts = new Map([[0, { userMessage: 'Full prompt text', assistantResponse: 'Full response text' }]]);
+
+      const detail = aggregator.aggregateSessionDetail('tr', [chat], undefined, [tool], turnTexts);
+      const turn = detail.turns[0];
+      expect(turn.promptText).toBe('Full prompt text');
+      expect(turn.responseText).toBe('Full response text');
+      const tc = turn.spans[0].toolCalls?.[0];
+      expect(tc?.args).toBe('{"filePath":"a.ts","startLine":1,"endLine":40}');
+      expect(tc?.result).toBe('contents…');
+      expect(tc?.status).toBe('error');
+      expect(tc?.statusMessage).toBe('file not found');
+    });
   });
 });
 

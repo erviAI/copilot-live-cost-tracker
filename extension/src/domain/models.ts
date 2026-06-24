@@ -26,6 +26,16 @@ export interface Span {
   statusCode: number;
   statusMessage: string | null;
   toolName: string | null;
+  /** Tool call arguments (JSON), populated only for execute_tool spans. */
+  toolArgs?: string | null;
+  /** Tool call result/output, populated only for execute_tool spans (capped). */
+  toolResult?: string | null;
+}
+
+/** Full user/assistant text for a single turn (from session-store.db). */
+export interface TurnText {
+  userMessage: string | null;
+  assistantResponse: string | null;
 }
 
 /** Per-model token and cost aggregate */
@@ -169,6 +179,10 @@ export interface TurnCost {
   children?: TurnCost[];
   /** Tool / function calls made while handling this turn */
   toolCalls?: ToolCall[];
+  /** Full user prompt text for this turn (from session-store.db), if available. */
+  promptText?: string | null;
+  /** Final assistant response text for this turn (from session-store.db), if available. */
+  responseText?: string | null;
 }
 
 /** A tool / function invocation within a turn (operation_name = 'execute_tool'). */
@@ -183,6 +197,12 @@ export interface ToolCall {
   startTimeMs: number;
   durationMs: number;
   status: 'ok' | 'error';
+  /** Tool call arguments (JSON string) as captured by Copilot, if available. */
+  args?: string | null;
+  /** Tool call result/output (capped), if available. */
+  result?: string | null;
+  /** Error/status message when the tool call failed (status === 'error'). */
+  statusMessage?: string | null;
 }
 
 /** Per-model breakdown with rate and cache hit stats */
