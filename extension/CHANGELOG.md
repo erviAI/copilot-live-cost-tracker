@@ -3,6 +3,16 @@
 All notable changes to the **Copilot Live Cost & Token Tracker** extension are
 documented in this file, with an emphasis on what changed for you, the user.
 
+## [1.2.0](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.1.0...v1.2.0) (2026-06-24)
+
+
+### Features
+
+* Add per-prompt cost breakdown to dashboard activity tab ([#37](https://github.com/erviAI/copilot-live-cost-tracker/issues/37)) ([e538bf1](https://github.com/erviAI/copilot-live-cost-tracker/commit/e538bf17bf7fdc73b385a342e951c85fad39bdaf))
+* **dashboard:** surface tool call args/result and model response text ([#41](https://github.com/erviAI/copilot-live-cost-tracker/issues/41)) ([9a91070](https://github.com/erviAI/copilot-live-cost-tracker/commit/9a91070e3fe9c18e5350a7156e467dc94f503785))
+* persist daily cost history across agent-traces.db cleanup ([#40](https://github.com/erviAI/copilot-live-cost-tracker/issues/40)) ([2896eb9](https://github.com/erviAI/copilot-live-cost-tracker/commit/2896eb93b2b23615f917036e9f1d7e8beda65624))
+* UI improvements — rename display name, collapsible sidebar sections, tool call labels ([#39](https://github.com/erviAI/copilot-live-cost-tracker/issues/39)) ([b760ad9](https://github.com/erviAI/copilot-live-cost-tracker/commit/b760ad9d3ce7e0235979ce96358405eca4bec941))
+
 ## [1.1.0](https://github.com/erviAI/cost-research/compare/v1.0.0...v1.1.0) (2026-06-22)
 
 
