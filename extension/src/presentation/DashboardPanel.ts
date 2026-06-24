@@ -293,6 +293,20 @@ export class DashboardPanel {
     .detail-table tr.span-row.clickable:hover > td { background: rgba(127,127,127,0.08); }
     .span-tools-row > td { padding: 0 !important; border-bottom: 1px solid var(--card-border); }
     .span-tools-wrap { padding: 4px 6px 6px 22px; }
+    .detail-table tr.tool-row.clickable { cursor: pointer; }
+    .detail-table tr.tool-row.clickable:hover > td { background: rgba(127,127,127,0.08); }
+    .tool-detail-row > td { padding: 0 !important; border-bottom: 1px solid var(--card-border); }
+    .tool-detail-wrap { padding: 6px 6px 8px 22px; }
+    .tool-detail-block { margin-bottom: 6px; }
+    .tool-detail-label { font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); font-weight: 600; margin-bottom: 2px; }
+    .tool-detail-pre { margin: 0; padding: 6px 8px; background: rgba(127,127,127,0.08); border: 1px solid var(--card-border); border-radius: 4px; font-size: 0.76em; line-height: 1.4; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
+    .tool-detail-pre.tool-detail-err { color: var(--cost-red, #c01c28); }
+    .text-panel { margin: 4px 0 8px; }
+    .text-panel-head { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; font-size: 0.8em; font-weight: 600; }
+    .text-panel-head .section-chevron { font-size: 0.85em; opacity: 0.8; }
+    .text-panel-title { flex: 0 0 auto; }
+    .text-panel-preview { font-weight: 400; opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .text-panel-pre { margin: 4px 0 0; padding: 8px 10px; background: rgba(127,127,127,0.08); border: 1px solid var(--card-border); border-radius: 4px; font-size: 0.8em; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto; }
     .detail-subtitle { font-size: 0.72em; color: var(--text-secondary); font-weight: 600; margin: 6px 0 2px; }
     .detail-child { margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--card-border); }
     .detail-child-head { font-size: 0.8em; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }

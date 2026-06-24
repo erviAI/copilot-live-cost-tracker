@@ -1,4 +1,4 @@
-import type { Span, ModelCost, PeriodCost, DailyBucket, SessionInfo, DashboardData, SessionDetailData, TurnCost, ModelDetailBreakdown, SpanDetail, WorkspaceCost, ToolCall } from './models.js';
+import type { Span, ModelCost, PeriodCost, DailyBucket, SessionInfo, DashboardData, SessionDetailData, TurnCost, ModelDetailBreakdown, SpanDetail, WorkspaceCost, ToolCall, TurnText } from './models.js';
 import { CostCalculator } from './CostCalculator.js';
 import { isIgnoredAgent } from './filters.js';
 import { isSubagentSessionId } from './sessionIds.js';
@@ -326,7 +326,7 @@ export class Aggregator {
     return unbound;
   }
 
-  aggregateSessionDetail(sessionId: string, spans: Span[], turnLabels?: Map<string, string>, toolSpans?: Span[]): SessionDetailData {
+  aggregateSessionDetail(sessionId: string, spans: Span[], turnLabels?: Map<string, string>, toolSpans?: Span[], turnTexts?: Map<number, TurnText>): SessionDetailData {
     // --- Tool/function calls grouped by trace (turn) ---
     const toolCallsByTrace = new Map<string, ToolCall[]>();
     for (const s of toolSpans ?? []) {
@@ -342,6 +342,9 @@ export class Aggregator {
         startTimeMs: s.startTimeMs,
         durationMs: Math.max(0, s.endTimeMs - s.startTimeMs),
         status: s.statusCode === 2 ? 'error' : 'ok',
+        args: s.toolArgs ?? null,
+        result: s.toolResult ?? null,
+        statusMessage: s.statusMessage ?? null,
       });
       toolCallsByTrace.set(s.traceId, arr);
     }
@@ -445,6 +448,8 @@ export class Aggregator {
 
       // Resolve turn label from user prompt (keyed by traceId)
       const label = turnLabels?.get(traceId) ?? null;
+      // Resolve full prompt/response text (keyed by turnIndex) when available.
+      const text = turnTexts?.get(turnIndex);
 
       // Bind each tool/function call to the model call that requested it.
       // Scope by parentSpanId (the owning agent) so parallel subagents never
@@ -474,6 +479,8 @@ export class Aggregator {
         spans: spanDetails,
         children: children.length > 0 ? children : undefined,
         toolCalls: unboundTools.length > 0 ? unboundTools : undefined,
+        promptText: text?.userMessage ?? null,
+        responseText: text?.assistantResponse ?? null,
       });
     }
 

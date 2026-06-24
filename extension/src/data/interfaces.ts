@@ -1,4 +1,4 @@
-import type { Span } from '../domain/models.js';
+import type { Span, TurnText } from '../domain/models.js';
 
 /**
  * Interface for accessing token/span data from agent-traces.db.
@@ -39,6 +39,16 @@ export interface ITurnLabelProvider {
 export interface IToolCallProvider {
   /** Get tool/function call spans for a session. */
   getToolSpansForSession(sessionId: string): Promise<Span[]>;
+}
+
+/**
+ * Optional capability for sources that can resolve full per-turn text
+ * (user prompt + assistant response) from session-store.db. Kept separate from
+ * {@link ISessionTitleResolver} so title-only sources are not forced to implement it.
+ */
+export interface ITurnTextProvider {
+  /** Resolve turn_index → full user/assistant text for a session. */
+  getTurnTexts(sessionId: string): Promise<Map<number, TurnText>>;
 }
 
 /**

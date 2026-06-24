@@ -1,7 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import type { ISessionTitleResolver } from './interfaces.js';
+import type { ISessionTitleResolver, ITurnTextProvider } from './interfaces.js';
+import type { TurnText } from '../domain/models.js';
 import { openDatabase, type Database } from './sqlite.js';
+
+/** Max characters retained per turn text field to bound the webview payload. */
+const MAX_TURN_TEXT_CHARS = 20000;
 
 /**
  * Resolves session display titles from VS Code's state.vscdb files.
@@ -9,7 +13,7 @@ import { openDatabase, type Database } from './sqlite.js';
  * that may have been started in any workspace.
  * Non-fatal: returns empty titles if databases are unavailable.
  */
-export class StateRepository implements ISessionTitleResolver {
+export class StateRepository implements ISessionTitleResolver, ITurnTextProvider {
   private cache: Map<string, string> | null = null;
   private workspaceCache: Map<string, string> | null = null;
   private readonly workspaceStorageRoot: string | null;
@@ -155,6 +159,46 @@ export class StateRepository implements ISessionTitleResolver {
     }
   }
 
+  /**
+   * Resolve full per-turn text (user prompt + assistant response) for a session
+   * from session-store.db. Keyed by `turn_index`, which aligns with the
+   * `turnIndex` used to group spans in the aggregator. Best-effort: returns an
+   * empty map when the database is unavailable or unreadable.
+   */
+  async getTurnTexts(sessionId: string): Promise<Map<number, TurnText>> {
+    const result = new Map<number, TurnText>();
+    if (!this.sessionStoreDbPath || !fs.existsSync(this.sessionStoreDbPath)) {
+      return result;
+    }
+
+    let db: Database | null = null;
+    try {
+      db = await openDatabase(this.sessionStoreDbPath);
+      const rows = await db.all<{
+        turn_index: number;
+        user_message: string | null;
+        assistant_response: string | null;
+      }>(
+        `SELECT turn_index, user_message, assistant_response
+         FROM turns
+         WHERE session_id = ?`,
+        [sessionId]
+      );
+      for (const row of rows) {
+        if (row.turn_index == null) continue;
+        result.set(row.turn_index, {
+          userMessage: cap(row.user_message),
+          assistantResponse: cap(row.assistant_response),
+        });
+      }
+    } catch {
+      // Turn text is best-effort; absence simply hides the prompt/response panels.
+    } finally {
+      db?.close();
+    }
+    return result;
+  }
+
   private addDebugLogFallbackTitles(titles: Map<string, string>): void {
     if (!this.workspaceStorageRoot || !fs.existsSync(this.workspaceStorageRoot)) {
       return;
@@ -251,4 +295,14 @@ function resolveWorkspaceName(storageRoot: string, wsDir: string): string | null
   } catch {
     return null;
   }
+}
+
+/** Trim and cap a turn-text field; returns null for empty/missing values. */
+function cap(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.length > MAX_TURN_TEXT_CHARS
+    ? trimmed.slice(0, MAX_TURN_TEXT_CHARS) + '\n…[truncated]'
+    : trimmed;
 }

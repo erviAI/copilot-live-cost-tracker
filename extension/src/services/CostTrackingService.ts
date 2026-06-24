@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import type { ISpanRepository, ISessionTitleResolver, ITurnLabelProvider, IToolCallProvider } from '../data/interfaces.js';
-import type { Span, DashboardData, SessionDetailData, DataSourceStatus, PeriodCost, RangePreset, RangeSummary, RecentPrompt, DailyAggregate, ModelDetailBreakdown } from '../domain/models.js';
+import type { ISpanRepository, ISessionTitleResolver, ITurnLabelProvider, IToolCallProvider, ITurnTextProvider } from '../data/interfaces.js';
+import type { Span, DashboardData, SessionDetailData, DataSourceStatus, PeriodCost, RangePreset, RangeSummary, RecentPrompt, DailyAggregate, ModelDetailBreakdown, TurnText } from '../domain/models.js';
 import type { CostDataSource } from '../config.js';
 import type { CostHistoryService } from './CostHistoryService.js';
 import { Aggregator } from '../domain/Aggregator.js';
@@ -38,7 +38,8 @@ export class CostTrackingService implements vscode.Disposable {
     private readonly backfillRepo: ISpanRepository | null = null,
     private readonly getCostDataSource: () => CostDataSource = () => 'agent-traces-only',
     private readonly turnLabelProvider: ITurnLabelProvider | null = null,
-    private readonly toolCallProvider: IToolCallProvider | null = null
+    private readonly toolCallProvider: IToolCallProvider | null = null,
+    private readonly turnTextProvider: ITurnTextProvider | null = null
   ) {}
 
   /** Attach a history service for periodic persistence */
@@ -170,7 +171,11 @@ export class CostTrackingService implements vscode.Disposable {
       if (this.toolCallProvider) {
         try { toolSpans = await this.toolCallProvider.getToolSpansForSession(sessionId); } catch { /* ignore */ }
       }
-      return this.aggregator.aggregateSessionDetail(sessionId, spans, turnLabels, toolSpans);
+      let turnTexts: Map<number, TurnText> | undefined;
+      if (this.turnTextProvider) {
+        try { turnTexts = await this.turnTextProvider.getTurnTexts(sessionId); } catch { /* ignore */ }
+      }
+      return this.aggregator.aggregateSessionDetail(sessionId, spans, turnLabels, toolSpans, turnTexts);
     } catch (err) {
       logger.error('getSessionDetail error:', err);
       return null;

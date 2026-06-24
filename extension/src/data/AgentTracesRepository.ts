@@ -35,6 +35,49 @@ const SPAN_SELECT_SQL = `
     AND a.key = 'gen_ai.usage.cache_creation.input_tokens'
 `;
 
+/** Max characters of tool result kept to bound the webview payload. */
+const MAX_TOOL_RESULT_CHARS = 4000;
+/** Max characters of tool arguments kept (args are normally small JSON). */
+const MAX_TOOL_ARGS_CHARS = 4000;
+
+/**
+ * SELECT for tool/function (execute_tool) spans. Extends the base span columns
+ * with the captured call arguments and (capped) result from span_attributes.
+ */
+const TOOL_SPAN_SELECT_SQL = `
+  SELECT
+    s.span_id AS spanId,
+    s.trace_id AS traceId,
+    s.parent_span_id AS parentSpanId,
+    s.operation_name AS operationName,
+    s.agent_name AS agentName,
+    s.request_model AS requestModel,
+    s.response_model AS responseModel,
+    s.input_tokens AS inputTokens,
+    s.output_tokens AS outputTokens,
+    s.cached_tokens AS cachedTokens,
+    0 AS cacheWriteTokens,
+    COALESCE(s.reasoning_tokens, 0) AS reasoningTokens,
+    s.start_time_ms AS startTimeMs,
+    s.end_time_ms AS endTimeMs,
+    s.ttft_ms AS ttftMs,
+    s.chat_session_id AS chatSessionId,
+    s.conversation_id AS conversationId,
+    s.turn_index AS turnIndex,
+    s.status_code AS statusCode,
+    s.status_message AS statusMessage,
+    s.tool_name AS toolName,
+    substr(args.value, 1, ${MAX_TOOL_ARGS_CHARS}) AS toolArgs,
+    substr(res.value, 1, ${MAX_TOOL_RESULT_CHARS}) AS toolResult
+  FROM spans s
+  LEFT JOIN span_attributes args
+    ON args.span_id = s.span_id
+    AND args.key = 'gen_ai.tool.call.arguments'
+  LEFT JOIN span_attributes res
+    ON res.span_id = s.span_id
+    AND res.key = 'gen_ai.tool.call.result'
+`;
+
 /**
  * Reads token/span data from agent-traces.db (OpenTelemetry format).
  * Opens the database read-only; handles WAL via native SQLite.
@@ -97,7 +140,7 @@ export class AgentTracesRepository implements ISpanRepository, ITurnLabelProvide
    */
   async getToolSpansForSession(sessionId: string): Promise<Span[]> {
     const db = await this.getDb();
-    const sql = SPAN_SELECT_SQL + `
+    const sql = TOOL_SPAN_SELECT_SQL + `
       WHERE s.operation_name = 'execute_tool'
         AND (
           s.chat_session_id = ? OR s.conversation_id = ?

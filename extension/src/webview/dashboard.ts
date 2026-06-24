@@ -58,6 +58,10 @@ let firstRender = true;
 const collapsed: Record<string, boolean> = {};
 const subagentCollapsed: Record<string, boolean> = {};
 const spanToolsExpanded: Record<string, boolean> = {};
+/** Expanded state per tool-call span id (shows args/result/error). Default collapsed. */
+const toolDetailExpanded: Record<string, boolean> = {};
+/** Collapsed state per prompt/response text panel (keyed by type#traceId). */
+const textPanelCollapsed: Record<string, boolean> = {};
 /** Session ids expanded in the Activity table (default: all collapsed). */
 const expandedSessions = new Set<string>();
 /** Per-prompt collapse state inside the session modal (keyed by traceId). */
@@ -172,6 +176,18 @@ function setupChrome(): void {
     const sub = target.closest('.detail-child-head') as HTMLElement | null;
     if (sub?.dataset.subagent) {
       toggleSubagent(sub.dataset.subagent);
+      return;
+    }
+    // Tool-call row -> expand its arguments / result / error detail.
+    const toolRow = target.closest('.tool-row') as HTMLElement | null;
+    if (toolRow?.dataset.toolSpanId) {
+      toggleToolDetail(toolRow.dataset.toolSpanId);
+      return;
+    }
+    // Prompt / Response text panel header -> expand/collapse full text.
+    const textHead = target.closest('.text-panel-head') as HTMLElement | null;
+    if (textHead?.dataset.textpanel) {
+      toggleTextPanel(textHead.dataset.textpanel);
       return;
     }
     // Model-call row -> expand its tool/function calls.
@@ -485,7 +501,7 @@ function renderRecentTurnsBody(): string {
 
 /** Spans + subagent breakdown shown inside the detail modal. */
 function renderTurnDetailBody(turn: RecentPrompt): string {
-  let html = '';
+  let html = renderTurnTextSections(turn);
   if (turn.spans && turn.spans.length > 0) {
     html += '<div class="detail-section-title">Model calls</div>' + renderSpansTable(turn.spans);
   }
@@ -517,7 +533,8 @@ function renderTurnDetailBody(turn: RecentPrompt): string {
   }
   if ((!turn.spans || turn.spans.length === 0) &&
       (!turn.toolCalls || turn.toolCalls.length === 0) &&
-      (!turn.children || turn.children.length === 0)) {
+      (!turn.children || turn.children.length === 0) &&
+      !turn.promptText && !turn.responseText) {
     html += '<div class="prompts-msg">No detailed interactions recorded for this prompt.</div>';
   }
   return html;
@@ -527,18 +544,85 @@ function renderToolCallsTable(calls: ToolCall[]): string {
   const rows = calls.map(c => {
     const op = c.operationName ? escapeHtml(c.operationName) : '—';
     const isErr = c.status === 'error';
-    return '<tr>' +
+    const hasDetail = !!(c.args || c.result || (isErr && c.statusMessage));
+    const expanded = hasDetail && !!toolDetailExpanded[c.spanId];
+    const nameHover = c.args ? compactArgs(c.args) : c.toolName;
+    const nameCell = (hasDetail ? '<span class="section-chevron">' + (expanded ? '▾' : '▸') + '</span> ' : '') +
+      escapeHtml(c.toolName);
+    let row = '<tr' + (hasDetail ? ' class="tool-row clickable" data-tool-span-id="' + escapeHtml(c.spanId) + '" title="Click to see arguments / result"' : '') + '>' +
       '<td title="' + escapeHtml(new Date(c.startTimeMs).toLocaleString()) + '">' + formatClock(c.startTimeMs) + '</td>' +
-      '<td class="detail-op" title="' + escapeHtml(c.toolName) + '">' + escapeHtml(c.toolName) + '</td>' +
+      '<td class="detail-op" title="' + escapeHtml(nameHover) + '">' + nameCell + '</td>' +
       '<td class="detail-op" title="' + op + '">' + op + '</td>' +
       '<td class="num">' + Math.round(c.durationMs) + 'ms</td>' +
       '<td class="' + (isErr ? 'tool-err' : 'tool-ok') + '">' + (isErr ? 'error' : 'ok') + '</td>' +
       '</tr>';
+    if (expanded) {
+      row += '<tr class="tool-detail-row"><td colspan="5"><div class="tool-detail-wrap">' +
+        renderToolDetail(c) + '</div></td></tr>';
+    }
+    return row;
   }).join('');
   return '<table class="detail-table">' +
     '<thead><tr><th>Time</th><th>Tool</th><th>Operation</th>' +
     '<th class="num">Dur</th><th>Status</th></tr></thead>' +
     '<tbody>' + rows + '</tbody></table>';
+}
+
+/** Pretty-print a JSON string; fall back to the raw text when not valid JSON. */
+function prettyJson(raw: string): string {
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
+}
+
+/** Collapse whitespace and truncate for an inline hover tooltip. */
+function compactArgs(raw: string): string {
+  const s = raw.replace(/\s+/g, ' ').trim();
+  return s.length > 300 ? s.slice(0, 300) + '…' : s;
+}
+
+/** Expanded args / result / error detail for a single tool call. */
+function renderToolDetail(c: ToolCall): string {
+  let html = '';
+  if (c.args) {
+    html += '<div class="tool-detail-block"><div class="tool-detail-label">Arguments</div>' +
+      '<pre class="tool-detail-pre">' + escapeHtml(prettyJson(c.args)) + '</pre></div>';
+  }
+  if (c.status === 'error' && c.statusMessage) {
+    html += '<div class="tool-detail-block"><div class="tool-detail-label">Error</div>' +
+      '<pre class="tool-detail-pre tool-detail-err">' + escapeHtml(c.statusMessage) + '</pre></div>';
+  }
+  if (c.result) {
+    html += '<div class="tool-detail-block"><div class="tool-detail-label">Result</div>' +
+      '<pre class="tool-detail-pre">' + escapeHtml(c.result) + '</pre></div>';
+  }
+  return html || '<div class="prompts-muted">No details captured.</div>';
+}
+
+/** Collapsible Prompt / Response panels for a turn (full text from session-store.db). */
+function renderTurnTextSections(turn: TurnCost): string {
+  let html = '';
+  if (turn.promptText) html += renderTextPanel('Prompt', turn.promptText, 'prompt#' + turn.traceId, false);
+  if (turn.responseText) html += renderTextPanel('Response', turn.responseText, 'response#' + turn.traceId, true);
+  return html;
+}
+
+/** A single collapsible text panel; long content is shown on expand. */
+function renderTextPanel(title: string, text: string, key: string, defaultCollapsed: boolean): string {
+  const collapsedNow = textPanelCollapsed[key] ?? defaultCollapsed;
+  const chevron = collapsedNow ? '▸' : '▾';
+  const preview = text.replace(/\s+/g, ' ').trim();
+  const previewShort = preview.length > 120 ? preview.slice(0, 120) + '…' : preview;
+  return '<div class="text-panel">' +
+    '<div class="text-panel-head" data-textpanel="' + escapeHtml(key) + '">' +
+      '<span class="section-chevron">' + chevron + '</span>' +
+      '<span class="text-panel-title">' + escapeHtml(title) + '</span>' +
+      (collapsedNow ? '<span class="text-panel-preview">' + escapeHtml(previewShort) + '</span>' : '') +
+    '</div>' +
+    (collapsedNow ? '' : '<pre class="text-panel-pre">' + escapeHtml(text) + '</pre>') +
+    '</div>';
 }
 
 function tokensPerSec(outputTokens: number, durationMs: number): string {
@@ -685,6 +769,20 @@ function toggleSubagent(key: string): void {
 /** Toggle the nested tool calls under a model-call row. */
 function toggleSpanTools(spanId: string): void {
   spanToolsExpanded[spanId] = !spanToolsExpanded[spanId];
+  refreshOpenModal();
+}
+
+/** Toggle the args/result/error detail under a tool-call row. */
+function toggleToolDetail(spanId: string): void {
+  toolDetailExpanded[spanId] = !toolDetailExpanded[spanId];
+  refreshOpenModal();
+}
+
+/** Toggle a Prompt / Response full-text panel. */
+function toggleTextPanel(key: string): void {
+  const defaultCollapsed = key.startsWith('response#');
+  const collapsedNow = textPanelCollapsed[key] ?? defaultCollapsed;
+  textPanelCollapsed[key] = !collapsedNow;
   refreshOpenModal();
 }
 
