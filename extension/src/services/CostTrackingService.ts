@@ -244,6 +244,18 @@ export class CostTrackingService implements vscode.Disposable {
     } catch (err) {
       // Log but don't crash — the extension should be resilient
       logger.error('Poll error:', err);
+      // If we have never produced data, surface the failure in the UI instead of
+      // leaving it stuck on the initial "Loading…" / "Waiting for data" state.
+      // (When we already have good data, keep showing it through transient errors.)
+      if (!this.lastData) {
+        const dataSourceStatus: DataSourceStatus = {
+          source: 'none',
+          agentTracesAvailable: false,
+          message: this.describePollError(err),
+        };
+        this.lastData = this.emptyDashboard(dataSourceStatus);
+        this._onDidUpdate.fire(this.lastData);
+      }
     } finally {
       this.polling = false;
     }
@@ -300,6 +312,19 @@ export class CostTrackingService implements vscode.Disposable {
 
   private getUnavailableGuidance(): string {
     return `Cost tracking reads agent-traces.db, which Copilot Chat only writes when OpenTelemetry tracing is enabled.\n\nTo fix this:\n1. Enable the setting "github.copilot.chat.otel.dbSpanExporter.enabled"\n2. Run a Copilot Chat session\n3. Restart VS Code if the file still isn't created\n\nExpected location: <VS Code user data>/User/globalStorage/github.copilot-chat/agent-traces.db`;
+  }
+
+  /**
+   * Build a human-readable, actionable message for a failed poll. Native
+   * (better-sqlite3) ABI mismatches are the most common cause and have a
+   * specific fix, so we detect and explain them directly.
+   */
+  private describePollError(err: unknown): string {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/NODE_MODULE_VERSION|compiled against a different Node\.js version|was compiled against/i.test(msg)) {
+      return `The native SQLite module (better-sqlite3) is built for a different Node.js version than the one on your PATH.\n\nTo fix this:\n1. Run "npm rebuild better-sqlite3" in the extension folder\n2. Reload the window (Developer: Reload Window)\n\nDetails: ${msg}`;
+    }
+    return `Failed to read cost data from agent-traces.db.\n\nDetails: ${msg}`;
   }
 
   /** Update polling interval when settings change */
