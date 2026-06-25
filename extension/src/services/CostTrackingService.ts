@@ -224,27 +224,23 @@ export class CostTrackingService implements vscode.Disposable {
   }
 
   /**
-   * Flatten the per-prompt (turn) costs from the most recent sessions into a
-   * single newest-first list, for the dashboard Activity table.
-   * @param maxSessions How many recent sessions to pull turns from.
-   * @param maxPrompts Cap on the total number of prompts returned.
+   * Per-prompt (turn) costs for a single session, newest-first. Lazy-loaded on
+   * demand when a session is expanded in the dashboard Activity table, so we
+   * only pay the per-session detail query for sessions the user actually opens.
    */
-  async getRecentTurns(maxSessions = 5, maxPrompts = 50): Promise<RecentPrompt[]> {
-    const sessions = this.lastData?.recentSessions ?? [];
-    const prompts: RecentPrompt[] = [];
-    for (const session of sessions.slice(0, maxSessions)) {
-      try {
-        const detail = await this.getSessionDetail(session.sessionId);
-        if (!detail) continue;
-        for (const turn of detail.turns) {
-          prompts.push({ ...turn, sessionId: session.sessionId, sessionTitle: session.title });
-        }
-      } catch (err) {
-        logger.warn('getRecentTurns: session detail failed (continuing):', err);
-      }
+  async getSessionTurns(sessionId: string): Promise<RecentPrompt[]> {
+    const info = (this.lastData?.recentSessions ?? []).find(s => s.sessionId === sessionId);
+    const title = info?.title ?? sessionId;
+    try {
+      const detail = await this.getSessionDetail(sessionId);
+      if (!detail) return [];
+      const prompts: RecentPrompt[] = detail.turns.map(turn => ({ ...turn, sessionId, sessionTitle: title }));
+      prompts.sort((a, b) => b.startTimeMs - a.startTimeMs);
+      return prompts;
+    } catch (err) {
+      logger.warn('getSessionTurns: session detail failed:', err);
+      return [];
     }
-    prompts.sort((a, b) => b.startTimeMs - a.startTimeMs);
-    return prompts.slice(0, maxPrompts);
   }
 
   private scheduleNext(): void {

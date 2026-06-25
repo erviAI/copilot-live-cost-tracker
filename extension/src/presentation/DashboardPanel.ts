@@ -18,7 +18,7 @@ export class DashboardPanel {
   private latestData: DashboardData | null = null;
   private latestBudgetState: BudgetState | null = null;
   private rangeSummaryHandler: ((preset: RangePreset) => Promise<RangeSummary>) | null = null;
-  private recentTurnsHandler: (() => Promise<RecentPrompt[]>) | null = null;
+  private sessionTurnsHandler: ((sessionId: string) => Promise<RecentPrompt[]>) | null = null;
   private pendingSessionModal: { sessionId: string; traceId?: string } | null = null;
 
   private constructor(panel: vscode.WebviewPanel, private readonly extensionUri: vscode.Uri) {
@@ -69,9 +69,9 @@ export class DashboardPanel {
     this.rangeSummaryHandler = handler;
   }
 
-  /** Set the handler invoked when the webview requests recent per-prompt costs. */
-  setRecentTurnsHandler(handler: () => Promise<RecentPrompt[]>): void {
-    this.recentTurnsHandler = handler;
+  /** Set the handler invoked when the webview lazily requests one session's per-prompt costs. */
+  setSessionTurnsHandler(handler: (sessionId: string) => Promise<RecentPrompt[]>): void {
+    this.sessionTurnsHandler = handler;
   }
 
   /** Push new dashboard data to the panel. */
@@ -133,10 +133,11 @@ export class DashboardPanel {
         }
         break;
       }
-      case 'recentTurns': {
-        if (this.recentTurnsHandler) {
-          const turns = await this.recentTurnsHandler();
-          this.panel.webview.postMessage({ type: 'recentTurns', turns });
+      case 'sessionTurns': {
+        const sessionId = (message as { sessionId?: unknown }).sessionId;
+        if (this.sessionTurnsHandler && typeof sessionId === 'string' && sessionId.length > 0) {
+          const turns = await this.sessionTurnsHandler(sessionId);
+          this.panel.webview.postMessage({ type: 'sessionTurns', sessionId, turns });
         }
         break;
       }

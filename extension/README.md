@@ -1,54 +1,77 @@
 # Copilot Live Cost & Token Tracker
 
-**Know exactly what GitHub Copilot is costing you — live, in your status bar, as you work.**
+**Know exactly what GitHub Copilot is costing you — every token, every prompt, every tool call — live in your status bar as you work.**
 
-Copilot bills by tokens and credits, but VS Code never shows you the running total. This extension does: a real-time gauge in your status bar, a per-model breakdown in the sidebar, and budget alerts before you blow past your limit. Everything is computed **100% locally** — no account login, no telemetry, no data ever leaves your machine.
+Copilot bills by tokens and credits, but VS Code never shows you *where* it goes. This extension does: a real-time gauge in your status bar, a multi-tab dashboard that breaks spend down by model, by prompt, and by token type, and budget alerts before you blow past your limit. Every figure is computed **100% locally** — no account login, no telemetry, no data ever leaves your machine.
 
 ![VS Code](https://img.shields.io/badge/VS%20Code-1.125+-blue) ![License](https://img.shields.io/badge/license-MIT-green) [![CI](https://github.com/erviAI/copilot-live-cost-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/erviAI/copilot-live-cost-tracker/actions/workflows/ci.yml)
 
 ## Why you'll want it
 
-- 💸 **No more surprise bills** — watch session and daily spend update live while you chat.
-- 🔍 **See which model drains your budget** — Claude, GPT-4o, Gemini and friends, broken down side by side.
+- 🔬 **Total token transparency** — fresh input, **cache read**, **cache write**, and output tokens are tracked and priced separately, never lumped into one opaque number.
+- 🔍 **Drill all the way down** — from a session, to a single prompt, to the model calls and tool calls inside it.
+- 💸 **No more surprise bills** — watch session, daily, and weekly spend update live while you chat.
 - 🚦 **Stop before you overspend** — color-coded warnings and notifications at thresholds you set.
 - 🔒 **Truly private** — reads only local Copilot data; nothing is uploaded, ever.
 
 ## Features
 
-### 📊 Real-time cost dashboard
+### 🔬 Transparent token & pricing breakdown
 
-- **Status bar gauge** showing session and daily cost at a glance — always visible, always current.
-- **Activity Bar sidebar** with a live-updating dashboard of token usage and cost breakdowns.
-- **Per-model breakdown** so you can see exactly which models (Claude, GPT-4o, Gemini, etc.) are consuming your budget.
+Copilot's cost isn't one number — it's different token types billed at very different rates, and this extension keeps them separate:
+
+- **Fresh input**, **cache read**, **cache write**, and **output** tokens are each tracked and priced independently — so you can see how much of your bill is cache-write overhead versus real output.
+- All rates are **USD per 1M tokens**, visible and overridable. Nothing is hidden behind a black box, and models we can't price are clearly badged rather than silently dropped.
+
+### 🔍 Drill down from session to tool call
+
+- **Session view** — recent chat sessions, each with its own running cost and turn count.
+- **Per-prompt breakdown** — expand a session to see the cost of every individual user prompt.
+- **Inside a prompt** — open any prompt to inspect its model calls, **tool calls** (arguments, results, errors), and subagent activity, each with its own token and cost contribution.
+- One click on the status bar or a session row jumps straight to the relevant detail.
+
+### 📊 Multi-tab dashboard
+
+A live dashboard in the Activity Bar sidebar (plus a full-window panel), refreshed automatically as you work:
+
+- **Activity tab** — token cards for fresh input / cache read / cache write / output, plus a cost-per-prompt table grouped by session.
+- **Cost tab** — KPI cards (Today, This Week, selected range, context weight) and a cost-history **line chart**.
+- **Models tab** — a **doughnut chart** and table breaking spend down per model.
+- A **7 / 30 / 90-day** range selector drives every card, chart, and table.
+
+### 🧮 Status bar gauge
+
+- Always-visible readout of **session cost**, **today's cost**, and current **context weight**.
+- Hover for the full picture: session / daily / weekly spend, model turn counts, today's token split, and optional conversion to your local currency.
+- The background turns yellow at your warning threshold and red at your limit.
 
 ### 🚦 Budget alerts
 
-- Set warning and limit thresholds for **session**, **daily**, and **weekly** spending.
-- Status bar shifts color as you climb: normal → yellow (warning) → red (limit reached).
-- VS Code notifications fire the moment a threshold is crossed.
+- Warning and limit thresholds for **session**, **daily**, and **weekly** spending.
+- A VS Code notification fires the moment a threshold is crossed — once per threshold, re-arming only after spend drops back below it.
 
-### 🕑 Session tracking & history
+### 🕑 Session history that survives resets
 
 - Automatically detects your current chat session and summarizes recent ones.
-- 7-day rolling window with daily cost buckets.
+- View the last 7, 30, or 90 days in the dashboard, with daily cost buckets.
 - Daily aggregates are saved to disk, so your history survives Copilot database resets — with configurable retention (7–365 days, default 90).
 
-### 🎯 Accurate, transparent pricing
+### 🎯 Accurate model pricing
 
-- Built-in pricing for Claude (Opus, Sonnet, Haiku), GPT-4o/4.1, o1, o3, Gemini, and more.
-- Fuzzy model-name matching handles version suffixes and naming variations automatically.
-- Add your own rates for custom or brand-new models via [pricing overrides](#custom-pricing-overrides).
+- Built-in pricing for current Claude (Opus, Sonnet, Haiku), the GPT-5 family, Gemini, and more.
+- Fuzzy name matching handles version suffixes and brand-new releases automatically, falling back to the closest known sibling. Anything inferred or unknown is badged (see [Reading the dashboard](#reading-the-dashboard)).
+- Add your own rates for custom or unlisted models via [pricing overrides](#custom-pricing-overrides).
 
 ### 🔒 Private & portable
 
-- Reads only local Copilot telemetry and debug logs from VS Code's own user storage — **no data leaves your machine**.
-- Works across VS Code, VS Code Insiders, VSCodium, and portable installs; the storage location is resolved automatically.
-- Cross-platform: macOS, Windows, and Linux paths are all resolved for you.
+- Works across VS Code, VS Code Insiders, VSCodium, and portable installs on macOS, Windows, and Linux — the storage location is resolved automatically, with nothing to configure.
 
 ## Requirements
 
 - **VS Code 1.125 or later** — including Insiders, VSCodium, and portable installs
 - GitHub Copilot Chat extension installed (this is where the usage data comes from)
+- **Node.js 24 on your PATH** — the extension reads `agent-traces.db` through a background worker that runs your host's **system Node.js**, *not* the runtime bundled with VS Code. Node 24 (the version the native SQLite binding is built for) must be installed and on `PATH`.
+- **OpenTelemetry tracing enabled** in Copilot Chat (`github.copilot.chat.otel.dbSpanExporter.enabled`) — this is what populates the data source. Run **Copilot Live Cost & Token Tracker: Enable OpenTelemetry Tracing**, or accept the prompt the extension shows on first run.
 
 ## Installation
 
@@ -75,6 +98,10 @@ Copilot bills by tokens and credits, but VS Code never shows you the running tot
 
 ### Reading the dashboard
 
+Switch between the **Activity**, **Cost**, and **Models** tabs, and use the **7 / 30 / 90-day** selector to set the range for every card, chart, and table.
+
+To drill down, expand a session to see its individual prompts, then open a prompt to inspect its model calls, tool calls (arguments, results, errors), and subagent activity — each with its own token and cost contribution.
+
 Per-model rows may carry a small badge:
 
 - **estimated** — the model wasn't in the built-in pricing table, so its rate was inferred from a related model family. The cost is approximate.
@@ -84,14 +111,15 @@ Per-model rows may carry a small badge:
 
 | Command | Description |
 |---------|-------------|
-| `Copilot Cost: Refresh Cost Data` | Force an immediate data refresh |
-| `Copilot Cost: Reset Session Tracking` | Reset the current session counter |
-| `Copilot Cost: Open Dashboard` | Focus the sidebar dashboard |
-| `Copilot Cost: Open Settings` | Jump to extension settings |
+| `Copilot Live Cost & Token Tracker: Refresh Cost Data` | Force an immediate data refresh |
+| `Copilot Live Cost & Token Tracker: Reset Session Tracking` | Reset the current session counter and budget alerts |
+| `Copilot Live Cost & Token Tracker: Open Dashboard` | Open the full-window dashboard |
+| `Copilot Live Cost & Token Tracker: Open Settings` | Jump to extension settings |
+| `Copilot Live Cost & Token Tracker: Enable OpenTelemetry Tracing` | Turn on the Copilot setting that populates the data source |
 
 ### Configuration
 
-All settings are under `copilotCostTracker.*` in VS Code Settings:
+All settings are under `copilotLiveCostTracker.*` in VS Code Settings:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -117,7 +145,7 @@ Numeric settings are clamped to safe ranges, so an out-of-range value falls back
 Use `pricingOverrides` to price new or custom models. Keys are model-name patterns; rates are **USD per 1 million tokens**. Entries that don't match this shape are ignored.
 
 ```jsonc
-"copilotCostTracker.pricingOverrides": {
+"copilotLiveCostTracker.pricingOverrides": {
   "my-custom-model": {
     "input": 3.0,      // required: fresh input tokens
     "output": 15.0,    // required: output tokens
@@ -150,11 +178,12 @@ hardcoded):
 
 **The dashboard says no data is available.**
 Cost tracking reads `agent-traces.db`, which Copilot Chat only writes when its
-OpenTelemetry tracing is enabled. Enable
-`github.copilot.chat.otel.dbSpanExporter.enabled`, run a Copilot Chat session,
-and restart VS Code if the file still isn't created. Until then, you can set
-`copilotCostTracker.costDataSource` to `with-fallback` to estimate from debug
-logs (cache-write data will be missing).
+OpenTelemetry tracing is enabled. Run **Copilot Live Cost & Token Tracker: Enable
+OpenTelemetry Tracing** (or enable
+`github.copilot.chat.otel.dbSpanExporter.enabled` yourself), run a Copilot Chat
+session, and restart VS Code if the file still isn't created. Until then, you can
+set `copilotLiveCostTracker.costDataSource` to `with-fallback` to estimate from
+debug logs (cache-write data will be missing).
 
 **A model shows as `unpriced` or `estimated`.**
 This is expected for brand-new or custom models. Add a
@@ -162,30 +191,14 @@ This is expected for brand-new or custom models. Add a
 
 **Nothing updates / errors in the logs.**
 The extension reads the SQLite databases through a background worker that uses
-your system Node.js. Check the **"Copilot Cost Tracker"** output channel for
-details, then use **Copilot Cost: Refresh Cost Data** to retry.
+your system Node.js. Check the **"Copilot Live Cost & Token Tracker"** output
+channel for details, then use **Copilot Live Cost & Token Tracker: Refresh Cost
+Data** to retry.
 
 ## Contributing
 
 Contributions are welcome! See [CONTRIBUTING.md](../CONTRIBUTING.md) for the full
-workflow and guidelines.
-
-```bash
-# Clone and set up
-git clone https://github.com/erviAI/copilot-live-cost-tracker.git
-cd copilot-live-cost-tracker/extension
-npm ci
-
-# Development
-npm run watch         # Rebuild on change
-npm run lint          # Lint with ESLint
-npm run typecheck     # Type-check src/ and test/
-npm test              # Run tests
-npm run test:coverage # Run tests with coverage
-
-# Package
-npm run package       # Produces .vsix file
-```
+development workflow, build and test scripts, and guidelines.
 
 ## License
 
