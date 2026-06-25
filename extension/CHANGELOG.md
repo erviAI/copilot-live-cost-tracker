@@ -3,6 +3,13 @@
 All notable changes to the **Copilot Live Cost & Token Tracker** extension are
 documented in this file, with an emphasis on what changed for you, the user.
 
+## [1.3.0](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.2.0...v1.3.0) (2026-06-25)
+
+
+### Features
+
+* add session detail modal functionality to dashboard and sidebar ([#42](https://github.com/erviAI/copilot-live-cost-tracker/issues/42)) ([b801ba1](https://github.com/erviAI/copilot-live-cost-tracker/commit/b801ba1b1223b03f7200b16a963711c10ff19b5e))
+
 ## [1.2.0](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.1.0...v1.2.0) (2026-06-24)
 
 
