@@ -3,6 +3,13 @@
 All notable changes to the **Copilot Live Cost & Token Tracker** extension are
 documented in this file, with an emphasis on what changed for you, the user.
 
+## [1.4.0](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.3.0...v1.4.0) (2026-06-25)
+
+
+### Features
+
+* lazy-load dashboard activity, reduce re-render churn ([#44](https://github.com/erviAI/copilot-live-cost-tracker/issues/44)) ([12bb54b](https://github.com/erviAI/copilot-live-cost-tracker/commit/12bb54bfa1613e06ea5720dec13211a3e54a4065))
+
 ## [1.3.0](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.2.0...v1.3.0) (2026-06-25)
 
 
