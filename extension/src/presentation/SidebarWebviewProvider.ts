@@ -77,6 +77,17 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
       case 'enableOtel':
         vscode.commands.executeCommand('copilotLiveCostTracker.enableOtel');
         break;
+      case 'openSessionModal': {
+        const sessionId = (message as { sessionId?: unknown }).sessionId;
+        const traceId = (message as { traceId?: unknown }).traceId;
+        if (typeof sessionId === 'string' && sessionId.length > 0) {
+          vscode.commands.executeCommand('copilotLiveCostTracker.openDashboard', {
+            sessionId,
+            traceId: typeof traceId === 'string' ? traceId : undefined,
+          });
+        }
+        break;
+      }
       case 'sessionDetail': {
         const sessionId = (message as { sessionId?: unknown }).sessionId;
         if (this.sessionDetailHandler && typeof sessionId === 'string' && sessionId.length > 0) {
@@ -676,7 +687,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
 
     let expandedSessionId = null;
     const turnsExpandedSessions = {};
-    const expandedTurnIds = {};
     const detailsOpenState = {}; // tracks open/closed state of <details> subsections by id
 
     function render(data, budgetState) {
@@ -967,57 +977,14 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
         return;
       }
 
-      // Turn row expand/collapse
-      var turnRow = e.target.closest('.turn-row') || e.target.closest('.subagent-row');
-      if (turnRow) {
-        var turnId = turnRow.dataset.turnId;
-        var isOpen = turnRow.classList.contains('expanded');
-        // For top-level turn rows, collapse all other turn rows first
-        if (turnRow.classList.contains('turn-row')) {
-          document.querySelectorAll('.turn-row.expanded').forEach(function(tr) {
-            tr.classList.remove('expanded');
-            var chev = tr.querySelector('.turn-chevron');
-            if (chev) chev.classList.remove('open');
-            document.querySelectorAll('.span-row[data-parent="' + tr.dataset.turnId + '"]').forEach(function(sr) {
-              sr.classList.remove('visible');
-              // Also collapse any expanded subagent rows within
-              if (sr.classList.contains('subagent-row') && sr.classList.contains('expanded')) {
-                sr.classList.remove('expanded');
-                var subChev = sr.querySelector('.turn-chevron');
-                if (subChev) subChev.classList.remove('open');
-                document.querySelectorAll('[data-parent="' + sr.dataset.turnId + '"]').forEach(function(ssr) {
-                  ssr.classList.remove('visible');
-                });
-              }
-            });
-          });
-        }
-        if (!isOpen) {
-          turnRow.classList.add('expanded');
-          var chevron = turnRow.querySelector('.turn-chevron');
-          if (chevron) chevron.classList.add('open');
-          document.querySelectorAll('.span-row[data-parent="' + turnId + '"], .subagent-span-row[data-parent="' + turnId + '"]').forEach(function(sr) {
-            sr.classList.add('visible');
-          });
-          if (expandedSessionId && turnRow.classList.contains('turn-row')) expandedTurnIds[expandedSessionId] = turnId;
-        } else {
-          turnRow.classList.remove('expanded');
-          var chevClose = turnRow.querySelector('.turn-chevron');
-          if (chevClose) chevClose.classList.remove('open');
-          document.querySelectorAll('.span-row[data-parent="' + turnId + '"], .subagent-span-row[data-parent="' + turnId + '"]').forEach(function(sr) {
-            sr.classList.remove('visible');
-            // Collapse nested subagent rows too
-            if (sr.classList.contains('subagent-row') && sr.classList.contains('expanded')) {
-              sr.classList.remove('expanded');
-              var subChev2 = sr.querySelector('.turn-chevron');
-              if (subChev2) subChev2.classList.remove('open');
-              document.querySelectorAll('[data-parent="' + sr.dataset.turnId + '"]').forEach(function(ssr) {
-                ssr.classList.remove('visible');
-              });
-            }
-          });
-          if (expandedSessionId && turnRow.classList.contains('turn-row')) delete expandedTurnIds[expandedSessionId];
-        }
+      // Prompt row → open the full session detail modal in the dashboard panel.
+      var promptRow = e.target.closest('.prompt-open');
+      if (promptRow && promptRow.dataset.sessionId) {
+        vscode.postMessage({
+          command: 'openSessionModal',
+          sessionId: promptRow.dataset.sessionId,
+          traceId: promptRow.dataset.traceId || ''
+        });
         return;
       }
 
@@ -1091,7 +1058,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
         html += '<div id="' + turnsWrapperId + '" class="' + (turnsOpen ? '' : 'hidden') + '"><table class="detail-table">';
         html += '<tr><th>Trace</th><th class="num">Requests</th><th class="num">Cost</th><th class="num">In</th><th class="num">Out</th><th class="num">Cache R</th><th class="num">Cache W</th><th class="num">Hit%</th></tr>';
         data.turns.forEach(function(t, idx) {
-          var turnId = 'turn-spans-' + idx;
           var traceLabel = t.traceId ? t.traceId.slice(0, 8) : ('T' + t.turnIndex);
           var timeLabel = t.startTimeMs ? formatClock(t.startTimeMs) : '';
           var agentLabel = t.agentName ? escapeHtml(t.agentName) : '';
@@ -1109,8 +1075,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
             'Requests: ' + t.llmCalls
           ].filter(Boolean);
           var tipHtml = tipLines.map(function(l) { return '<div>' + escapeHtml(l) + '</div>'; }).join('');
-          html += '<tr class="turn-row has-tip" data-turn-id="' + turnId + '">' +
-            '<td><span class="chevron turn-chevron">&#9654;</span> ' + (timeLabel ? '<span class="turn-time">[' + timeLabel + ']</span> ' : '') + (turnLabel ? '<span class="turn-label">' + turnLabel + '</span>' : (agentLabel ? '<span class="turn-agent">' + agentLabel + '</span> ' : '') + '<span class="turn-trace">' + traceLabel + '</span>') +
+          html += '<tr class="turn-row prompt-open has-tip" data-session-id="' + escapeHtml(sessionId) + '" data-trace-id="' + escapeHtml(t.traceId || '') + '" title="Open full detail in dashboard">' +
+            '<td>' + (timeLabel ? '<span class="turn-time">[' + timeLabel + ']</span> ' : '') + (turnLabel ? '<span class="turn-label">' + turnLabel + '</span>' : (agentLabel ? '<span class="turn-agent">' + agentLabel + '</span> ' : '') + '<span class="turn-trace">' + traceLabel + '</span>') +
             '<span class="tip">' + tipHtml + '</span></td>' +
             '<td class="num">' + t.llmCalls + '</td>' +
             '<td class="num">' + formatCost(t.totalCost) + '</td>' +
@@ -1119,84 +1085,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
             '<td class="num">' + formatTokens(t.cachedTokens) + '</td>' +
             '<td class="num">' + formatTokens(t.cacheWriteTokens) + '</td>' +
             '<td class="num">' + cacheHit(t.inputTokens, t.cachedTokens) + '</td></tr>';
-          // Nested span rows (hidden via CSS .span-row)
-          if (t.spans && t.spans.length > 0) {
-            t.spans.forEach(function(sp, spIdx) {
-              var spAgent = sp.agentName ? '<span class="turn-agent">' + escapeHtml(sp.agentName) + '</span> ' : '';
-              var spTotal = (sp.inputTokens || 0) + (sp.outputTokens || 0) + (sp.cachedTokens || 0);
-              var spTipLines = [
-                sp.agentName ? 'Agent: ' + sp.agentName : '',
-                'Model: ' + sp.model,
-                'Trace: ' + (sp.traceId || ''),
-                'Span: ' + (sp.spanId || ''),
-                'Duration: ' + formatDuration(sp.durationMs),
-                'Tokens: ' + formatTokens(spTotal) + ' (in ' + formatTokens(sp.inputTokens) + ' / out ' + formatTokens(sp.outputTokens) + ' / cache ' + formatTokens(sp.cachedTokens) + ')',
-                'Cost: ' + formatCost(sp.totalCost)
-              ].filter(Boolean);
-              var spTipHtml = spTipLines.map(function(l) { return '<div>' + escapeHtml(l) + '</div>'; }).join('');
-              html += '<tr class="span-row has-tip" data-parent="' + turnId + '">' +
-                '<td>' + spAgent + escapeHtml(shortModel(sp.model)) + '<span class="tip">' + spTipHtml + '</span></td>' +
-                '<td class="num">' + (spIdx + 1) + '</td>' +
-                '<td class="num">' + formatCost(sp.totalCost) + '</td>' +
-                '<td class="num">' + formatTokens(sp.inputTokens) + '</td>' +
-                '<td class="num">' + formatTokens(sp.outputTokens) + '</td>' +
-                '<td class="num">' + formatTokens(sp.cachedTokens) + '</td>' +
-                '<td class="num">' + formatTokens(sp.cacheWriteTokens) + '</td>' +
-                '<td class="num">' + cacheHit(sp.inputTokens, sp.cachedTokens) + '</td></tr>';
-            });
-          }
-          // Subagent child turns (indented, shown as distinct labeled groups)
-          if (t.children && t.children.length > 0) {
-            t.children.forEach(function(child, childIdx) {
-              var childId = turnId + '-child-' + childIdx;
-              var childAgent = child.agentName ? escapeHtml(child.agentName) : 'subagent';
-              var childTime = child.startTimeMs ? formatClock(child.startTimeMs) : '';
-              var childTipLines = [
-                child.agentName ? 'Agent: ' + child.agentName : '',
-                child.model ? 'Model: ' + shortModel(child.model) : '',
-                'Duration: ' + formatDuration(child.durationMs),
-                'Turns: ' + child.llmCalls,
-                'Cost: ' + formatCost(child.totalCost)
-              ].filter(Boolean);
-              var childTipHtml = childTipLines.map(function(l) { return '<div>' + escapeHtml(l) + '</div>'; }).join('');
-              html += '<tr class="span-row subagent-row has-tip" data-parent="' + turnId + '" data-turn-id="' + childId + '">' +
-                '<td><span class="chevron turn-chevron">&#9654;</span> ' + (childTime ? '<span class="turn-time">[' + childTime + ']</span> ' : '') + '<span class="turn-agent">' + childAgent + '</span>' +
-                '<span class="tip">' + childTipHtml + '</span></td>' +
-                '<td class="num">' + child.llmCalls + '</td>' +
-                '<td class="num">' + formatCost(child.totalCost) + '</td>' +
-                '<td class="num">' + formatTokens(child.inputTokens) + '</td>' +
-                '<td class="num">' + formatTokens(child.outputTokens) + '</td>' +
-                '<td class="num">' + formatTokens(child.cachedTokens) + '</td>' +
-                '<td class="num">' + formatTokens(child.cacheWriteTokens) + '</td>' +
-                '<td class="num">' + cacheHit(child.inputTokens, child.cachedTokens) + '</td></tr>';
-              // Nested spans within the child subagent
-              if (child.spans && child.spans.length > 0) {
-                child.spans.forEach(function(csp, cspIdx) {
-                  var cspAgent = csp.agentName ? '<span class="turn-agent">' + escapeHtml(csp.agentName) + '</span> ' : '';
-                  var cspTotal = (csp.inputTokens || 0) + (csp.outputTokens || 0) + (csp.cachedTokens || 0);
-                  var cspTipLines = [
-                    csp.agentName ? 'Agent: ' + csp.agentName : '',
-                    'Model: ' + csp.model,
-                    'Trace: ' + (csp.traceId || ''),
-                    'Span: ' + (csp.spanId || ''),
-                    'Duration: ' + formatDuration(csp.durationMs),
-                    'Tokens: ' + formatTokens(cspTotal) + ' (in ' + formatTokens(csp.inputTokens) + ' / out ' + formatTokens(csp.outputTokens) + ' / cache ' + formatTokens(csp.cachedTokens) + ')',
-                    'Cost: ' + formatCost(csp.totalCost)
-                  ].filter(Boolean);
-                  var cspTipHtml = cspTipLines.map(function(l) { return '<div>' + escapeHtml(l) + '</div>'; }).join('');
-                  html += '<tr class="span-row subagent-span-row has-tip" data-parent="' + childId + '">' +
-                    '<td class="indent-sub">' + cspAgent + escapeHtml(shortModel(csp.model)) + '<span class="tip">' + cspTipHtml + '</span></td>' +
-                    '<td class="num">' + (cspIdx + 1) + '</td>' +
-                    '<td class="num">' + formatCost(csp.totalCost) + '</td>' +
-                    '<td class="num">' + formatTokens(csp.inputTokens) + '</td>' +
-                    '<td class="num">' + formatTokens(csp.outputTokens) + '</td>' +
-                    '<td class="num">' + formatTokens(csp.cachedTokens) + '</td>' +
-                    '<td class="num">' + formatTokens(csp.cacheWriteTokens) + '</td>' +
-                    '<td class="num">' + cacheHit(csp.inputTokens, csp.cachedTokens) + '</td></tr>';
-                });
-              }
-            });
-          }
         });
         html += '</table></div></div>';
       }
@@ -1210,20 +1098,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
         turnsWrapper.classList.remove('hidden');
         var chevron = detailEl.querySelector('.turns-section-title .section-chevron');
         if (chevron) chevron.classList.add('open');
-      }
-
-      // Restore expanded turn row if any
-      var savedTurnId = expandedTurnIds[sessionId];
-      if (savedTurnId) {
-        var turnRow = detailEl.querySelector('.turn-row[data-turn-id="' + savedTurnId + '"]');
-        if (turnRow) {
-          turnRow.classList.add('expanded');
-          var chevron = turnRow.querySelector('.turn-chevron');
-          if (chevron) chevron.classList.add('open');
-          detailEl.querySelectorAll('.span-row[data-parent="' + savedTurnId + '"]').forEach(function(sr) {
-            sr.classList.add('visible');
-          });
-        }
       }
     }
 
