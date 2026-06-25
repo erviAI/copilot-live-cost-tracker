@@ -22,8 +22,9 @@ interface RangeMessage {
   type: 'rangeSummary';
   summary: RangeSummary;
 }
-interface RecentTurnsMessage {
-  type: 'recentTurns';
+interface SessionTurnsMessage {
+  type: 'sessionTurns';
+  sessionId: string;
   turns: RecentPrompt[];
 }
 interface OpenSessionModalMessage {
@@ -31,7 +32,7 @@ interface OpenSessionModalMessage {
   sessionId: string;
   traceId?: string;
 }
-type InboundMessage = UpdateMessage | RangeMessage | RecentTurnsMessage | OpenSessionModalMessage;
+type InboundMessage = UpdateMessage | RangeMessage | SessionTurnsMessage | OpenSessionModalMessage;
 
 const vscode = acquireVsCodeApi();
 
@@ -41,7 +42,8 @@ let budgetState: BudgetState | null = null;
 let thresholds: BudgetThresholds | null = null;
 let displayCurrency: DisplayCurrency = null;
 let rangeSummary: RangeSummary | null = null;
-let recentTurns: RecentPrompt[] | null = null;
+/** Per-session lazy cache of prompt detail. 'loading' while a fetch is in flight. */
+const sessionTurns: Record<string, RecentPrompt[] | 'loading'> = {};
 let selectedRange: RangePreset = '7d';
 let activeTab = 'activity';
 /** traceId of the prompt currently shown in the detail modal, or null. Used to
@@ -49,6 +51,8 @@ let activeTab = 'activity';
 let openModalTraceId: string | null = null;
 /** sessionId of the session currently shown in the session-detail modal, or null. */
 let openModalSessionId: string | null = null;
+/** sessionId backing an open prompt-detail modal (prompt modals are keyed by traceId). */
+let openPromptSessionId: string | null = null;
 /** While the modal is open, poll the prompt data at this faster cadence so live
  * tool calls / model calls appear without waiting for the 10s dashboard refresh. */
 let modalPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -71,8 +75,12 @@ const textPanelCollapsed: Record<string, boolean> = {};
 const expandedSessions = new Set<string>();
 /** Per-prompt collapse state inside the session modal (keyed by traceId). */
 const sessionModalTurnCollapsed: Record<string, boolean> = {};
-/** Pending session modal request (from the sidebar) awaiting recentTurns data. */
+/** Pending session modal request (from the sidebar) awaiting per-session turn data. */
 let pendingSessionModal: { sessionId: string; traceId?: string } | null = null;
+/** Last-rendered fingerprints; used to skip redundant re-renders so an open tool
+ * args/result panel keeps its scroll position and text selection. */
+let lastTableSig = '';
+let lastModalSig = '';
 
 const charts: Record<string, Chart> = {};
 
@@ -109,28 +117,16 @@ window.addEventListener('message', (event: MessageEvent<InboundMessage>) => {
     displayCurrency = msg.displayCurrency;
     requestRange(selectedRange);
     renderActiveTab();
-    // Refresh the open modal even when the prompts table isn't on screen.
-    if (openModalTraceId || openModalSessionId) vscode.postMessage({ command: 'recentTurns' });
+    // Re-fetch detail for on-screen sessions so live tool/model calls appear.
+    refreshOpenSessionData();
   } else if (msg.type === 'rangeSummary') {
     rangeSummary = msg.summary;
     renderActiveTab();
-  } else if (msg.type === 'recentTurns') {
-    recentTurns = msg.turns;
-    renderRecentTurnsTable();
-    if (pendingSessionModal) {
-      const req = pendingSessionModal;
-      pendingSessionModal = null;
-      openSessionModal(req.sessionId, req.traceId);
-    }
+  } else if (msg.type === 'sessionTurns') {
+    sessionTurns[msg.sessionId] = msg.turns;
+    onSessionTurnsLoaded(msg.sessionId);
   } else if (msg.type === 'openSessionModal') {
-    pendingSessionModal = { sessionId: msg.sessionId, traceId: msg.traceId };
-    if (recentTurns) {
-      const req = pendingSessionModal;
-      pendingSessionModal = null;
-      openSessionModal(req.sessionId, req.traceId);
-    } else {
-      vscode.postMessage({ command: 'recentTurns' });
-    }
+    openSessionModal(msg.sessionId, msg.traceId);
   }
 });
 
@@ -233,8 +229,8 @@ function setupChrome(): void {
     }
     // Prompt row -> open the detail modal.
     const row = target.closest('.prompt-row') as HTMLElement | null;
-    if (row?.dataset.turnIdx) {
-      openModal(Number(row.dataset.turnIdx));
+    if (row?.dataset.traceId && row.dataset.sessionId) {
+      openModal(row.dataset.sessionId, row.dataset.traceId);
       return;
     }
   });
@@ -363,7 +359,8 @@ function renderActivity(panel: HTMLElement): void {
     section('tokens', 'Tokens', 'tokens', tokenCards) +
     section('prompts', 'Cost per User Prompt', 'costPerPrompt', promptsBody);
 
-  vscode.postMessage({ command: 'recentTurns' });
+  lastTableSig = tableSig();
+  ensureExpandedLoaded();
 }
 
 /** Toggle a collapsible section, lazily (re)drawing the cost chart on expand. */
@@ -433,26 +430,141 @@ interface SessionGroup {
   sessionId: string;
   title: string;
   info: SessionInfo | null;
-  /** Prompts in this session, paired with their index into `recentTurns`. */
+  /** Prompts in this session, paired with their index within the loaded turn list. */
   items: { turn: RecentPrompt; idx: number }[];
 }
 
-/** Group the flat recent-prompt list by session, preserving newest-first order. */
-function groupTurnsBySession(turns: RecentPrompt[]): SessionGroup[] {
-  const infoById = new Map<string, SessionInfo>();
-  for (const s of data?.recentSessions ?? []) infoById.set(s.sessionId, s);
-  const byId = new Map<string, SessionGroup>();
-  const groups: SessionGroup[] = [];
-  turns.forEach((turn, idx) => {
-    let g = byId.get(turn.sessionId);
-    if (!g) {
-      g = { sessionId: turn.sessionId, title: turn.sessionTitle, info: infoById.get(turn.sessionId) ?? null, items: [] };
-      byId.set(turn.sessionId, g);
-      groups.push(g);
+/** SessionInfo for a session id from the latest dashboard data. */
+function sessionInfoFor(sessionId: string): SessionInfo | null {
+  return data?.recentSessions.find(s => s.sessionId === sessionId) ?? null;
+}
+
+/** Build a SessionGroup from a session's aggregate info + lazily-loaded turns. */
+function sessionGroupFor(info: SessionInfo): SessionGroup {
+  const loaded = sessionTurns[info.sessionId];
+  const items = Array.isArray(loaded) ? loaded.map((turn, idx) => ({ turn, idx })) : [];
+  return { sessionId: info.sessionId, title: info.title, info, items };
+}
+
+function sessionGroupById(sessionId: string): SessionGroup | null {
+  const info = sessionInfoFor(sessionId);
+  return info ? sessionGroupFor(info) : null;
+}
+
+/** True when a session's per-prompt detail has finished loading. */
+function sessionLoaded(sessionId: string): boolean {
+  return Array.isArray(sessionTurns[sessionId]);
+}
+
+/** Lazily request one session's per-prompt detail. `force` re-fetches loaded data
+ * (used by live refreshes) without flipping the row back to a loading state. */
+function requestSessionTurns(sessionId: string, force = false): void {
+  const state = sessionTurns[sessionId];
+  if (!force && state !== undefined) return; // already loading or loaded
+  if (state === undefined) sessionTurns[sessionId] = 'loading';
+  vscode.postMessage({ command: 'sessionTurns', sessionId });
+}
+
+/** Kick off lazy loads for any expanded-but-unloaded sessions after a tab render. */
+function ensureExpandedLoaded(): void {
+  for (const id of expandedSessions) if (sessionTurns[id] === undefined) requestSessionTurns(id);
+}
+
+/** Session id backing whichever modal is open (prompt or session), or null. */
+function openModalSession(): string | null {
+  return openModalSessionId ?? openPromptSessionId;
+}
+
+/** Re-fetch detail for sessions whose detail is on screen (open modal + expanded
+ * rows) so live tool/model calls appear without reloading everything. */
+function refreshOpenSessionData(): void {
+  const ids = new Set<string>();
+  const ms = openModalSession();
+  if (ms) ids.add(ms);
+  for (const id of expandedSessions) ids.add(id);
+  for (const id of ids) requestSessionTurns(id, true);
+}
+
+/** Handle freshly-loaded session detail: open a pending modal, then refresh the
+ * table and any open modal — each guarded so unchanged data triggers no re-render. */
+function onSessionTurnsLoaded(sessionId: string): void {
+  if (pendingSessionModal && pendingSessionModal.sessionId === sessionId) {
+    const req = pendingSessionModal;
+    pendingSessionModal = null;
+    openSessionModal(req.sessionId, req.traceId);
+  }
+  maybeRenderTable();
+  maybeRefreshOpenModal();
+}
+
+/** A compact fingerprint of a turn's cost-bearing data; changes only when the
+ * displayed numbers/content actually change. */
+function turnSig(t: TurnCost): string {
+  return [t.traceId, t.totalCost, t.llmCalls, countTurnTools(t), t.inputTokens, t.outputTokens,
+    t.spans?.length ?? 0, t.children?.length ?? 0,
+    (t.promptText ?? '').length, (t.responseText ?? '').length].join('|');
+}
+
+/** Fingerprint of the whole Activity table (sessions, aggregates, expansion, detail). */
+function tableSig(): string {
+  return (data?.recentSessions ?? []).map(s => {
+    const exp = expandedSessions.has(s.sessionId) ? 'E' : 'c';
+    const loaded = sessionTurns[s.sessionId];
+    const detail = Array.isArray(loaded) ? loaded.map(turnSig).join(',') : String(loaded ?? 'none');
+    return [s.sessionId, exp, s.totalCost, s.modelTurns, s.inputTokens, s.outputTokens, detail].join(':');
+  }).join('|');
+}
+
+/** Rebuild the Activity prompts table only when its data fingerprint changed. */
+function maybeRenderTable(): void {
+  const el = document.getElementById('recent-turns');
+  if (!el) return;
+  const sig = tableSig();
+  if (sig === lastTableSig) return;
+  lastTableSig = sig;
+  el.innerHTML = renderRecentTurnsBody();
+}
+
+function isModalOpen(): boolean {
+  return openModalTraceId !== null || openModalSessionId !== null;
+}
+
+/** Fingerprint of the data shown in the open modal. */
+function modalSig(): string {
+  if (openModalTraceId && openPromptSessionId) {
+    const turns = sessionTurns[openPromptSessionId];
+    if (!Array.isArray(turns)) return 'loading';
+    const t = turns.find(x => x.traceId === openModalTraceId);
+    return t ? turnSig(t) : 'none';
+  }
+  if (openModalSessionId) {
+    const turns = sessionTurns[openModalSessionId];
+    if (!Array.isArray(turns)) return 'loading';
+    return turns.map(turnSig).join(';');
+  }
+  return '';
+}
+
+/** Render the open modal (prompt or session) unconditionally. */
+function renderOpenModal(): void {
+  if (openModalTraceId && openPromptSessionId) {
+    const turns = sessionTurns[openPromptSessionId];
+    if (Array.isArray(turns)) {
+      const turn = turns.find(t => t.traceId === openModalTraceId);
+      if (turn) renderModalBody(turn);
     }
-    g.items.push({ turn, idx });
-  });
-  return groups;
+  } else if (openModalSessionId) {
+    const group = sessionGroupById(openModalSessionId);
+    if (group && sessionLoaded(openModalSessionId)) renderSessionModalBody(group);
+  }
+  lastModalSig = modalSig();
+}
+
+/** Re-render the open modal only when its underlying data changed (live refresh). */
+function maybeRefreshOpenModal(): void {
+  if (!isModalOpen()) return;
+  if (modalSig() === lastModalSig) return;
+  renderOpenModal();
 }
 
 /** Exact session totals from SessionInfo when available, else summed from the
@@ -473,9 +585,9 @@ function sessionAggregate(g: SessionGroup): { count: number; reqs: number; cost:
 }
 
 /** One prompt sub-row inside an expanded session. */
-function renderPromptRow(t: RecentPrompt, idx: number): string {
+function renderPromptRow(t: RecentPrompt, sessionId: string): string {
   const label = t.label ? escapeHtml(t.label) : '<span class="prompts-muted">(no prompt text)</span>';
-  return '<tr class="prompt-row prompt-subrow" data-turn-idx="' + idx + '" title="Click to see all interactions">' +
+  return '<tr class="prompt-row prompt-subrow" data-session-id="' + escapeHtml(sessionId) + '" data-trace-id="' + escapeHtml(t.traceId) + '" title="Click to see all interactions">' +
     '<td class="prompts-session"></td>' +
     '<td class="prompts-label prompt-indent" title="' + (t.label ? escapeHtml(t.label) : '') + '">' + label + '</td>' +
     '<td class="num">' + formatCost(t.totalCost) + '</td>' +
@@ -490,29 +602,40 @@ function renderPromptRow(t: RecentPrompt, idx: number): string {
 function renderSessionGroup(g: SessionGroup): string {
   const expanded = expandedSessions.has(g.sessionId);
   const agg = sessionAggregate(g);
+  const loaded = sessionLoaded(g.sessionId);
   const chevron = expanded ? '▾' : '▸';
+  const countLabel = loaded
+    ? '<span class="prompts-muted">' + agg.count + ' prompt' + (agg.count === 1 ? '' : 's') + '</span>'
+    : '';
   let html = '<tr class="session-row" data-session-id="' + escapeHtml(g.sessionId) + '" title="Click to ' + (expanded ? 'collapse' : 'expand') + '">' +
     '<td class="prompts-session session-cell" title="Open session detail">' +
       '<span class="session-name">' + escapeHtml(g.title) + '</span>' +
     '</td>' +
     '<td class="prompts-label session-expand-cell">' +
       '<span class="section-chevron">' + chevron + '</span>' +
-      '<span class="prompts-muted">' + agg.count + ' prompt' + (agg.count === 1 ? '' : 's') + '</span></td>' +
+      countLabel + '</td>' +
     '<td class="num">' + formatCost(agg.cost) + '</td>' +
     '<td class="num">' + agg.reqs + '</td>' +
     '<td class="num">' + formatTokens(agg.input) + '</td>' +
     '<td class="num">' + formatTokens(agg.output) + '</td>' +
     '<td class="num">' + cacheHitPct(agg.input, agg.cached) + '</td>' +
     '</tr>';
-  if (expanded) html += g.items.map(({ turn, idx }) => renderPromptRow(turn, idx)).join('');
+  if (expanded) {
+    if (loaded) {
+      html += g.items.length
+        ? g.items.map(({ turn }) => renderPromptRow(turn, g.sessionId)).join('')
+        : '<tr class="prompt-subrow"><td class="prompts-session"></td><td class="prompts-label prompt-indent prompts-muted" colspan="6">No prompts recorded.</td></tr>';
+    } else {
+      html += '<tr class="prompt-subrow"><td class="prompts-session"></td><td class="prompts-label prompt-indent prompts-muted" colspan="6">Loading…</td></tr>';
+    }
+  }
   return html;
 }
 
 function renderRecentTurnsBody(): string {
-  if (recentTurns === null) return '<div class="prompts-msg">Loading…</div>';
-  if (recentTurns.length === 0) return '<div class="prompts-msg">No prompts yet.</div>';
-  const groups = groupTurnsBySession(recentTurns);
-  const rows = groups.map(g => renderSessionGroup(g)).join('');
+  const sessions = data?.recentSessions ?? [];
+  if (sessions.length === 0) return '<div class="prompts-msg">No prompts yet.</div>';
+  const rows = sessions.map(info => renderSessionGroup(sessionGroupFor(info))).join('');
   return '<table class="prompts-table">' +
     '<thead><tr><th>Session</th><th>Prompt</th><th class="num">Cost</th>' +
     '<th class="num">Reqs' + infoBadge('reqs') + '</th><th class="num">In</th><th class="num">Out</th>' +
@@ -617,7 +740,7 @@ function renderToolDetail(c: ToolCall): string {
   }
   if (c.result) {
     html += '<div class="tool-detail-block"><div class="tool-detail-label">Result</div>' +
-      '<pre class="tool-detail-pre">' + escapeHtml(c.result) + '</pre></div>';
+      '<pre class="tool-detail-pre">' + escapeHtml(prettyJson(c.result)) + '</pre></div>';
   }
   return html || '<div class="prompts-muted">No details captured.</div>';
 }
@@ -769,34 +892,22 @@ function renderSessionModalBody(group: SessionGroup): void {
   body.scrollTop = scroll;
 }
 
-/** Re-render whichever modal (prompt or session) is currently open. */
-function refreshOpenModal(): void {
-  if (!recentTurns) return;
-  if (openModalTraceId) {
-    const turn = recentTurns.find(t => t.traceId === openModalTraceId);
-    if (turn) renderModalBody(turn);
-  } else if (openModalSessionId) {
-    const group = groupTurnsBySession(recentTurns).find(g => g.sessionId === openModalSessionId);
-    if (group) renderSessionModalBody(group);
-  }
-}
-
 /** Toggle a subagent node, re-rendering the open modal so totals stay visible. */
 function toggleSubagent(key: string): void {
   subagentCollapsed[key] = !subagentCollapsed[key];
-  refreshOpenModal();
+  renderOpenModal();
 }
 
 /** Toggle the nested tool calls under a model-call row. */
 function toggleSpanTools(spanId: string): void {
   spanToolsExpanded[spanId] = !spanToolsExpanded[spanId];
-  refreshOpenModal();
+  renderOpenModal();
 }
 
 /** Toggle the args/result/error detail under a tool-call row. */
 function toggleToolDetail(spanId: string): void {
   toolDetailExpanded[spanId] = !toolDetailExpanded[spanId];
-  refreshOpenModal();
+  renderOpenModal();
 }
 
 /** Toggle a Prompt / Response full-text panel. */
@@ -804,28 +915,28 @@ function toggleTextPanel(key: string): void {
   const defaultCollapsed = key.startsWith('response#');
   const collapsedNow = textPanelCollapsed[key] ?? defaultCollapsed;
   textPanelCollapsed[key] = !collapsedNow;
-  refreshOpenModal();
+  renderOpenModal();
 }
 
 /** Toggle a prompt entry inside the session modal. */
 function toggleSessionModalTurn(traceId: string): void {
   const collapsedNow = sessionModalTurnCollapsed[traceId] !== false;
   sessionModalTurnCollapsed[traceId] = !collapsedNow;
-  refreshOpenModal();
+  renderOpenModal();
 }
 
-/** Expand/collapse a session's prompt sub-rows in the Activity table. */
+/** Expand/collapse a session's prompt sub-rows in the Activity table (lazy-loads). */
 function toggleSessionExpand(sessionId: string): void {
   if (expandedSessions.has(sessionId)) expandedSessions.delete(sessionId);
-  else expandedSessions.add(sessionId);
-  const el = document.getElementById('recent-turns');
-  if (el) el.innerHTML = renderRecentTurnsBody();
+  else { expandedSessions.add(sessionId); requestSessionTurns(sessionId); }
+  maybeRenderTable();
 }
 
 function startModalPolling(): void {
   stopModalPolling();
   modalPollTimer = setInterval(() => {
-    if (openModalTraceId || openModalSessionId) vscode.postMessage({ command: 'recentTurns' });
+    const id = openModalSession();
+    if (id) requestSessionTurns(id, true);
   }, MODAL_POLL_MS);
 }
 
@@ -833,31 +944,44 @@ function stopModalPolling(): void {
   if (modalPollTimer !== null) { clearInterval(modalPollTimer); modalPollTimer = null; }
 }
 
-function openModal(idx: number): void {
-  if (!recentTurns) return;
-  const turn = recentTurns[idx];
+function openModal(sessionId: string, traceId: string): void {
+  const turns = sessionTurns[sessionId];
+  if (!Array.isArray(turns)) return;
+  const turn = turns.find(t => t.traceId === traceId);
   if (!turn) return;
   const overlay = document.getElementById('modal-overlay');
   if (!overlay) return;
   openModalSessionId = null;
-  openModalTraceId = turn.traceId;
+  openPromptSessionId = sessionId;
+  openModalTraceId = traceId;
   renderModalBody(turn);
+  lastModalSig = modalSig();
   overlay.classList.remove('hidden');
   startModalPolling();
 }
 
 /** Open the session-detail modal: aggregate summary + per-prompt entries.
- * When `expandTraceId` is given, that prompt is auto-expanded. */
+ * When `expandTraceId` is given, that prompt is auto-expanded. Detail is
+ * lazy-loaded; a Loading… placeholder shows until it arrives. */
 function openSessionModal(sessionId: string, expandTraceId?: string): void {
-  if (!recentTurns) return;
-  const group = groupTurnsBySession(recentTurns).find(g => g.sessionId === sessionId);
-  if (!group) return;
   const overlay = document.getElementById('modal-overlay');
   if (!overlay) return;
   openModalTraceId = null;
+  openPromptSessionId = null;
   openModalSessionId = sessionId;
   if (expandTraceId) sessionModalTurnCollapsed[expandTraceId] = false;
-  renderSessionModalBody(group);
+  if (sessionLoaded(sessionId)) {
+    const group = sessionGroupById(sessionId);
+    if (group) renderSessionModalBody(group);
+  } else {
+    pendingSessionModal = { sessionId, traceId: expandTraceId };
+    requestSessionTurns(sessionId);
+    const body = document.getElementById('modal-body');
+    const title = document.getElementById('modal-title');
+    if (title) title.textContent = sessionInfoFor(sessionId)?.title || 'Session detail';
+    if (body) body.innerHTML = '<div class="prompts-msg">Loading…</div>';
+  }
+  lastModalSig = modalSig();
   overlay.classList.remove('hidden');
   startModalPolling();
 }
@@ -865,15 +989,9 @@ function openSessionModal(sessionId: string, expandTraceId?: string): void {
 function closeModal(): void {
   openModalTraceId = null;
   openModalSessionId = null;
+  openPromptSessionId = null;
   stopModalPolling();
   document.getElementById('modal-overlay')?.classList.add('hidden');
-}
-
-function renderRecentTurnsTable(): void {
-  const el = document.getElementById('recent-turns');
-  if (el) el.innerHTML = renderRecentTurnsBody();
-  // Keep an open modal (prompt or session) in sync with refreshed data.
-  refreshOpenModal();
 }
 
 function renderModels(panel: HTMLElement): void {

@@ -74,6 +74,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
       case 'openSettings':
         vscode.commands.executeCommand('copilotLiveCostTracker.openSettings');
         break;
+      case 'openDashboard':
+        vscode.commands.executeCommand('copilotLiveCostTracker.openDashboard');
+        break;
       case 'enableOtel':
         vscode.commands.executeCommand('copilotLiveCostTracker.enableOtel');
         break;
@@ -638,6 +641,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
 <body>
   <div class="toolbar">
     <button id="btn-refresh">Refresh</button>
+    <button id="btn-dashboard">Dashboard</button>
     <button id="btn-settings">Settings</button>
   </div>
 
@@ -651,6 +655,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
     document.getElementById('btn-refresh').addEventListener('click', () => {
       vscode.postMessage({ command: 'refresh' });
     });
+    document.getElementById('btn-dashboard').addEventListener('click', () => {
+      vscode.postMessage({ command: 'openDashboard' });
+    });
     document.getElementById('btn-settings').addEventListener('click', () => {
       vscode.postMessage({ command: 'openSettings' });
     });
@@ -661,6 +668,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
     let lastBudgetState = null;
     let selectedRange = '7d';
     let rangeSummary = null;
+    // Signature of the last rendered body (excludes the volatile "Updated" timestamp)
+    // so idle refreshes skip the full innerHTML rebuild and preserve scroll/expanded state.
+    let lastRenderSig = null;
 
     window.addEventListener('message', (event) => {
       const msg = event.data;
@@ -701,12 +711,16 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
       }
 
       if (!data || (data.today.modelTurns === 0 && data.thisWeek.modelTurns === 0)) {
-        content.innerHTML = bannerHtml + '<div class="empty-state">No Copilot usage data found yet.</div>';
+        var emptyHtml = bannerHtml + '<div class="empty-state">No Copilot usage data found yet.</div>';
+        if (emptyHtml !== lastRenderSig) {
+          content.innerHTML = emptyHtml;
+          lastRenderSig = emptyHtml;
+        }
         return;
       }
 
       var last7DaysTotal = (data.last7Days || []).reduce(function(s, d) { return s + (d.totalCost || 0); }, 0);
-      const html = [
+      const bodyHtml = [
         bannerHtml,
         renderCollapsibleSection('today', 'TODAY', renderCostCard(data.today, budgetState?.dailyLevel) + renderCollapsibleModel('today-model', data.today.byModel) + renderCollapsibleWorkspace('today-ws', data.today.byWorkspace), formatCost(data.today.totalCost)),
         renderCollapsibleSection('currentSession', 'CURRENT SESSION', renderCurrentSessionCard(data.currentSession, budgetState?.sessionLevel), formatCost(data.currentSession.totalCost)),
@@ -714,8 +728,18 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
         renderCollapsibleSection('thisWeek', 'THIS WEEK', renderCostCard(data.thisWeek, budgetState?.weeklyLevel) + renderCollapsibleModel('week-model', data.thisWeek.byModel) + renderCollapsibleWorkspace('week-ws', data.thisWeek.byWorkspace), formatCost(data.thisWeek.totalCost)),
         renderCollapsibleSection('dateRange', 'DATE RANGE', renderRangeSelector() + '<div id="range-body">' + renderRangeBody() + '</div>', RANGE_LABELS[selectedRange]),
         renderCollapsibleSection('last7days', 'LAST 7 DAYS', renderChart(data.last7Days), formatCost(last7DaysTotal)),
-        '<div class="updated-at">Updated: ' + formatTime(data.updatedAt) + '</div>',
       ].join('');
+
+      // Nothing meaningful changed: just refresh the timestamp in place so the
+      // scroll position and any expanded session detail stay untouched.
+      if (bodyHtml === lastRenderSig && content.children.length > 0) {
+        var ua = document.getElementById('updated-at');
+        if (ua) ua.textContent = 'Updated: ' + formatTime(data.updatedAt);
+        return;
+      }
+      lastRenderSig = bodyHtml;
+
+      const html = bodyHtml + '<div class="updated-at" id="updated-at">Updated: ' + formatTime(data.updatedAt) + '</div>';
 
       content.innerHTML = html;
 
