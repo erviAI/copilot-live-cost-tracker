@@ -105,13 +105,18 @@ export function activate(context: vscode.ExtensionContext): void {
       trackingService.resetSession();
       budgetService.resetAlerts();
     }),
-    vscode.commands.registerCommand('copilotLiveCostTracker.openDashboard', () => {
+    vscode.commands.registerCommand('copilotLiveCostTracker.openDashboard', (args?: unknown) => {
       const panel = DashboardPanel.createOrShow(context.extensionUri);
       panel.setRangeSummaryHandler((preset) => trackingService.getRangeSummary(preset));
       panel.setRecentTurnsHandler(() => trackingService.getRecentTurns());
       const data = trackingService.getLastData();
       if (data) {
         panel.update(data, budgetService.evaluate(data));
+      }
+      const sessionId = (args as { sessionId?: unknown } | undefined)?.sessionId;
+      if (typeof sessionId === 'string' && sessionId.length > 0) {
+        const traceId = (args as { traceId?: unknown }).traceId;
+        panel.revealSessionModal(sessionId, typeof traceId === 'string' ? traceId : undefined);
       }
     }),
     vscode.commands.registerCommand('copilotLiveCostTracker.openSettings', () => {

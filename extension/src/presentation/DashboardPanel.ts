@@ -19,6 +19,7 @@ export class DashboardPanel {
   private latestBudgetState: BudgetState | null = null;
   private rangeSummaryHandler: ((preset: RangePreset) => Promise<RangeSummary>) | null = null;
   private recentTurnsHandler: (() => Promise<RecentPrompt[]>) | null = null;
+  private pendingSessionModal: { sessionId: string; traceId?: string } | null = null;
 
   private constructor(panel: vscode.WebviewPanel, private readonly extensionUri: vscode.Uri) {
     this.panel = panel;
@@ -80,6 +81,22 @@ export class DashboardPanel {
     this.post();
   }
 
+  /** Reveal the panel and open the detail modal for a session (optionally
+   * auto-expanding a specific prompt by trace id). */
+  revealSessionModal(sessionId: string, traceId?: string): void {
+    this.pendingSessionModal = { sessionId, traceId };
+    this.panel.reveal(this.panel.viewColumn);
+    // Post immediately for an already-loaded webview; the 'ready' handler
+    // re-sends it for a freshly created panel whose listener isn't attached yet.
+    this.flushSessionModal();
+  }
+
+  private flushSessionModal(): void {
+    if (!this.pendingSessionModal) return;
+    const { sessionId, traceId } = this.pendingSessionModal;
+    this.panel.webview.postMessage({ type: 'openSessionModal', sessionId, traceId });
+  }
+
   private post(): void {
     if (!this.latestData) return;
     this.panel.webview.postMessage({
@@ -99,6 +116,8 @@ export class DashboardPanel {
     switch (command) {
       case 'ready':
         this.post();
+        this.flushSessionModal();
+        this.pendingSessionModal = null;
         break;
       case 'refresh':
         vscode.commands.executeCommand('copilotLiveCostTracker.refresh');

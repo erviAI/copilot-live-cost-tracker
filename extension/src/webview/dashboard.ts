@@ -26,7 +26,12 @@ interface RecentTurnsMessage {
   type: 'recentTurns';
   turns: RecentPrompt[];
 }
-type InboundMessage = UpdateMessage | RangeMessage | RecentTurnsMessage;
+interface OpenSessionModalMessage {
+  type: 'openSessionModal';
+  sessionId: string;
+  traceId?: string;
+}
+type InboundMessage = UpdateMessage | RangeMessage | RecentTurnsMessage | OpenSessionModalMessage;
 
 const vscode = acquireVsCodeApi();
 
@@ -66,6 +71,8 @@ const textPanelCollapsed: Record<string, boolean> = {};
 const expandedSessions = new Set<string>();
 /** Per-prompt collapse state inside the session modal (keyed by traceId). */
 const sessionModalTurnCollapsed: Record<string, boolean> = {};
+/** Pending session modal request (from the sidebar) awaiting recentTurns data. */
+let pendingSessionModal: { sessionId: string; traceId?: string } | null = null;
 
 const charts: Record<string, Chart> = {};
 
@@ -110,6 +117,20 @@ window.addEventListener('message', (event: MessageEvent<InboundMessage>) => {
   } else if (msg.type === 'recentTurns') {
     recentTurns = msg.turns;
     renderRecentTurnsTable();
+    if (pendingSessionModal) {
+      const req = pendingSessionModal;
+      pendingSessionModal = null;
+      openSessionModal(req.sessionId, req.traceId);
+    }
+  } else if (msg.type === 'openSessionModal') {
+    pendingSessionModal = { sessionId: msg.sessionId, traceId: msg.traceId };
+    if (recentTurns) {
+      const req = pendingSessionModal;
+      pendingSessionModal = null;
+      openSessionModal(req.sessionId, req.traceId);
+    } else {
+      vscode.postMessage({ command: 'recentTurns' });
+    }
   }
 });
 
@@ -825,8 +846,9 @@ function openModal(idx: number): void {
   startModalPolling();
 }
 
-/** Open the session-detail modal: aggregate summary + per-prompt entries. */
-function openSessionModal(sessionId: string): void {
+/** Open the session-detail modal: aggregate summary + per-prompt entries.
+ * When `expandTraceId` is given, that prompt is auto-expanded. */
+function openSessionModal(sessionId: string, expandTraceId?: string): void {
   if (!recentTurns) return;
   const group = groupTurnsBySession(recentTurns).find(g => g.sessionId === sessionId);
   if (!group) return;
@@ -834,6 +856,7 @@ function openSessionModal(sessionId: string): void {
   if (!overlay) return;
   openModalTraceId = null;
   openModalSessionId = sessionId;
+  if (expandTraceId) sessionModalTurnCollapsed[expandTraceId] = false;
   renderSessionModalBody(group);
   overlay.classList.remove('hidden');
   startModalPolling();
