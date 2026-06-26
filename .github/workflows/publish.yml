@@ -15,7 +15,7 @@ on:
       dry_run:
         description: 'Package only, skip Marketplace publish'
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: read
