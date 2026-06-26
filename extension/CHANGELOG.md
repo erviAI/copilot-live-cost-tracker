@@ -3,6 +3,13 @@
 All notable changes to the **Copilot Live Cost & Token Tracker** extension are
 documented in this file, with an emphasis on what changed for you, the user.
 
+## [1.4.1](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.4.0...v1.4.1) (2026-06-26)
+
+
+### Bug Fixes
+
+* add animated loading logo for startup and data-fetching states ([8ee4b03](https://github.com/erviAI/copilot-live-cost-tracker/commit/8ee4b034c57a09267b8c2034aa2f4dda6df94609))
+
 ## [1.4.0](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.3.0...v1.4.0) (2026-06-25)
 
 
