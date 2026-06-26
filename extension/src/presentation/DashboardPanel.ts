@@ -238,6 +238,26 @@ export class DashboardPanel {
     .budget-fill { height: 100%; border-radius: 5px; transition: width 0.3s; }
     .budget-sub { font-size: 0.75em; color: var(--text-secondary); margin-top: 3px; }
     .empty { text-align: center; color: var(--text-secondary); padding: 48px 16px; }
+    .loading-logo { width: 72px; height: 72px; margin: 0 auto 16px; display: block; color: var(--text-secondary); }
+    .loading-logo .ekg-line { stroke-dasharray: 40; stroke-dashoffset: 40; animation: ekg-sweep 1.8s ease-in-out infinite; }
+    .loading-logo .dollar { transform-box: fill-box; transform-origin: center; animation: dollar-beat 1.8s ease-in-out infinite; }
+    @keyframes ekg-sweep {
+      0%   { stroke-dashoffset: 40; opacity: 0.25; }
+      12%  { opacity: 1; }
+      60%  { stroke-dashoffset: 0; opacity: 1; }
+      78%  { opacity: 1; }
+      100% { stroke-dashoffset: -40; opacity: 0.25; }
+    }
+    @keyframes dollar-beat {
+      0%, 100% { transform: scale(1); opacity: 0.55; }
+      55%      { transform: scale(1); opacity: 0.7; }
+      63%      { transform: scale(1.18); opacity: 1; }
+      72%      { transform: scale(1); opacity: 0.85; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .loading-logo .ekg-line, .loading-logo .dollar { animation: none; }
+      .loading-logo .ekg-line { stroke-dashoffset: 0; }
+    }
     .updated-at { margin-top: 16px; font-size: 0.75em; color: var(--text-secondary); text-align: right; }
     .prompts-wrap { margin-top: 16px; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 6px; padding: 12px; }
     .prompts-title { font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); margin-bottom: 8px; font-weight: 600; }
@@ -362,7 +382,23 @@ export class DashboardPanel {
     <button class="range-btn" data-range="30d">30 Days</button>
     <button class="range-btn" data-range="90d">90 Days</button>
   </div>
-  <div id="panel"><div class="empty">Loading…</div></div>
+  <div id="panel"><div class="empty">
+    <svg class="loading-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <defs>
+        <linearGradient id="ekg-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#4CAF50"/>
+          <stop offset="50%" stop-color="#FFEB3B"/>
+          <stop offset="100%" stop-color="#E53935"/>
+        </linearGradient>
+      </defs>
+      <polyline class="ekg-line" points="2,16 7,16 9,7 11,22 13,16 14,16" stroke="url(#ekg-grad)" stroke-width="1.8"/>
+      <g class="dollar">
+        <path d="M18 3v12"/>
+        <path d="M21 5.5H16.5a2 2 0 0 0 0 4h2a2 2 0 0 1 0 4H14.5"/>
+      </g>
+    </svg>
+    <div>Loading\u2026</div>
+  </div></div>
   <div class="updated-at" id="updated-at"></div>
   <div id="modal-overlay" class="modal-overlay hidden">
     <div class="modal">

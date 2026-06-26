@@ -636,6 +636,38 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
     .workspace-row:last-child { border-bottom: none; }
     .workspace-name { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; }
     .workspace-cost { font-weight: 500; white-space: nowrap; margin-left: 8px; }
+
+    /* Animated logo shown while waiting for the first batch of usage data. */
+    .loading-state { text-align: center; padding: 32px 16px; color: var(--text-muted); }
+    .loading-logo { width: 64px; height: 64px; margin: 0 auto 14px; display: block; color: var(--text-secondary); }
+    .loading-logo .ekg-line {
+      stroke-dasharray: 40;
+      stroke-dashoffset: 40;
+      animation: ekg-sweep 1.8s ease-in-out infinite;
+    }
+    .loading-logo .dollar {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: dollar-beat 1.8s ease-in-out infinite;
+    }
+    .loading-text { font-size: 0.85em; }
+    @keyframes ekg-sweep {
+      0%   { stroke-dashoffset: 40; opacity: 0.25; }
+      12%  { opacity: 1; }
+      60%  { stroke-dashoffset: 0; opacity: 1; }
+      78%  { opacity: 1; }
+      100% { stroke-dashoffset: -40; opacity: 0.25; }
+    }
+    @keyframes dollar-beat {
+      0%, 100% { transform: scale(1); opacity: 0.55; }
+      55%      { transform: scale(1); opacity: 0.7; }
+      63%      { transform: scale(1.18); opacity: 1; }
+      72%      { transform: scale(1); opacity: 0.85; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .loading-logo .ekg-line, .loading-logo .dollar { animation: none; }
+      .loading-logo .ekg-line { stroke-dashoffset: 0; }
+    }
   </style>
 </head>
 <body>
@@ -646,7 +678,23 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
   </div>
 
   <div id="content">
-    <div class="empty-state">Waiting for Copilot usage data...</div>
+    <div class="empty-state loading-state">
+      <svg class="loading-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <defs>
+          <linearGradient id="ekg-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#4CAF50"/>
+            <stop offset="50%" stop-color="#FFEB3B"/>
+            <stop offset="100%" stop-color="#E53935"/>
+          </linearGradient>
+        </defs>
+        <polyline class="ekg-line" points="2,16 7,16 9,7 11,22 13,16 14,16" stroke="url(#ekg-grad)" stroke-width="1.8"/>
+        <g class="dollar">
+          <path d="M18 3v12"/>
+          <path d="M21 5.5H16.5a2 2 0 0 0 0 4h2a2 2 0 0 1 0 4H14.5"/>
+        </g>
+      </svg>
+      <div class="loading-text">Waiting for Copilot usage data\u2026</div>
+    </div>
   </div>
 
   <script nonce="${nonce}">
