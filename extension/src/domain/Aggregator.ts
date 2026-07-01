@@ -559,10 +559,11 @@ function isToolCallSessionId(id: string): boolean {
 }
 
 /**
- * Compute the live context weight for a session: the prompt size (fresh + cached
- * input tokens) of the most recent turn. All spans in a turn share a traceId;
- * we take the largest prompt among the latest turn's spans, which corresponds to
- * the main model call carrying the full conversation context.
+ * Compute the live context weight for a session: the total prompt size (input
+ * tokens, which already include any cached tokens per gen_ai usage semantics)
+ * of the most recent turn. All spans in a turn share a traceId; we take the
+ * largest prompt among the latest turn's spans, which corresponds to the main
+ * model call carrying the full conversation context.
  */
 function computeContextWeight(sessionSpans: Span[]): number {
   if (sessionSpans.length === 0) return 0;
@@ -579,7 +580,7 @@ function computeContextWeight(sessionSpans: Span[]): number {
   let weight = 0;
   for (const s of sessionSpans) {
     if (s.traceId === latestTraceId) {
-      const prompt = s.inputTokens + s.cachedTokens;
+      const prompt = s.inputTokens;
       if (prompt > weight) weight = prompt;
     }
   }
