@@ -30,6 +30,7 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Regenerate pricing-data.ts
+        id: regenerate
         working-directory: tools/update-pricing
         run: node generate.mjs
 
@@ -37,14 +38,16 @@ jobs:
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: 'chore: update Copilot model pricing'
-          branch: chore/update-pricing
+          commit-message: ${{ steps.regenerate.outputs.pr_title }}
+          branch: fix/update-pricing
           delete-branch: true
-          title: 'chore: update Copilot model pricing'
+          title: ${{ steps.regenerate.outputs.pr_title }}
           body: |
             Automated update of `extension/src/domain/pricing-data.ts` from
             GitHub's published pricing table
             (`github/docs` → `data/tables/copilot/models-and-pricing.yml`).
+
+            ${{ steps.regenerate.outputs.model_changes_body }}
 
             Review the diff to confirm the new rates before merging. New model
             versions that land between runs are priced tentatively at runtime

@@ -23,7 +23,7 @@
  * shape still matches telemetry identifiers.
  */
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, appendFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { load as parseYaml } from 'js-yaml';
@@ -105,6 +105,45 @@ function renderEntry(key, fields) {
     parts.push(`cacheWrite: ${fields.cacheWrite}`);
   }
   return `  '${key}': { ${parts.join(', ')} },`;
+}
+
+/**
+ * Join model keys for display, truncating long lists so PR titles stay readable.
+ * @param {string[]} keys @param {number} [max]
+ */
+function formatNames(keys, max = 4) {
+  if (keys.length <= max) return keys.join(', ');
+  return `${keys.slice(0, max).join(', ')} +${keys.length - max} more`;
+}
+
+/**
+ * Build a Conventional Commits-style title describing this run's model
+ * additions/removals, so the PR title (and commit message) reflect the actual
+ * diff instead of a generic message. Falls back to a generic description when
+ * only rates changed for already-known models.
+ * @param {string[]} addedKeys @param {string[]} removedKeys
+ */
+function buildPrTitle(addedKeys, removedKeys) {
+  const clauses = [];
+  if (addedKeys.length > 0) clauses.push(`add ${formatNames(addedKeys)}`);
+  if (removedKeys.length > 0) clauses.push(`drop ${formatNames(removedKeys)}`);
+  if (clauses.length === 0) return 'fix(models): update Copilot model pricing';
+  return `fix(models): ${clauses.join('; ')}`;
+}
+
+/**
+ * Build a markdown fragment summarizing model additions/removals for the PR
+ * body. Unlike the title, names are never truncated here.
+ * @param {string[]} addedKeys @param {string[]} removedKeys
+ */
+function buildModelChangesBody(addedKeys, removedKeys) {
+  if (addedKeys.length === 0 && removedKeys.length === 0) {
+    return '_No models added or removed this run — existing rates were refreshed._';
+  }
+  const lines = ['**Model changes this run:**'];
+  if (addedKeys.length > 0) lines.push(`- Added: ${addedKeys.join(', ')}`);
+  if (removedKeys.length > 0) lines.push(`- Dropped (moved to deprecated): ${removedKeys.join(', ')}`);
+  return lines.join('\n');
 }
 
 /**
@@ -241,6 +280,8 @@ async function build() {
   }
   const previous = parseGeneratedPricing(previousContent);
   let extrasChanged = false;
+  /** Keys dropped from the published table this run (migrated to deprecated). */
+  const removedKeys = [];
   for (const [key, rates] of previous) {
     if (seenKeys.has(key)) continue; // still published
     if (Object.prototype.hasOwnProperty.call(extras, key)) continue; // already tracked
@@ -252,7 +293,11 @@ async function build() {
       deprecated: true,
     };
     extrasChanged = true;
+    removedKeys.push(key);
   }
+  removedKeys.sort();
+  /** Keys published this run that weren't present in the previously generated file at all. */
+  const addedKeys = [...seenKeys].filter((k) => !previous.has(k)).sort();
 
   /** @param {string} key @param {any} m */
   const renderExtra = (key, m) =>
@@ -279,11 +324,11 @@ async function build() {
 
   lines.push('};');
   lines.push('');
-  return { content: lines.join('\n'), extras: extrasRaw, extrasChanged };
+  return { content: lines.join('\n'), extras: extrasRaw, extrasChanged, addedKeys, removedKeys };
 }
 
 async function main() {
-  const { content, extras, extrasChanged } = await build();
+  const { content, extras, extrasChanged, addedKeys, removedKeys } = await build();
   const check = process.argv.includes('--check');
   const extrasText = serializeExtras(extras);
 
@@ -323,6 +368,22 @@ async function main() {
   }
   await writeFile(OUTPUT_PATH, content, 'utf8');
   console.log(`Wrote ${OUTPUT_PATH}`);
+
+  const prTitle = buildPrTitle(addedKeys, removedKeys);
+  const modelChangesBody = buildModelChangesBody(addedKeys, removedKeys);
+  console.log(prTitle);
+
+  if (process.env.GITHUB_OUTPUT) {
+    const delimiter = `ghadelim_${Math.random().toString(36).slice(2)}`;
+    const outputLines = [
+      `pr_title=${prTitle}`,
+      `model_changes_body<<${delimiter}`,
+      modelChangesBody,
+      delimiter,
+      '',
+    ];
+    await appendFile(process.env.GITHUB_OUTPUT, outputLines.join('\n'), 'utf8');
+  }
 }
 
 main().catch((err) => {
