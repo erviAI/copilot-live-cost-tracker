@@ -41,6 +41,9 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   // microsoft
   'mai-code-1-flash': { input: 0.75, output: 4.50, cached: 0.075 },
 
+  // moonshot_ai
+  'kimi-k2.7-code': { input: 0.95, output: 4.00, cached: 0.19 },
+
   // Additional models not in the official pricing table (see extra-models.json)
   'gpt-4o-mini': { input: 0.15, output: 0.60, cached: 0.075 },
   'gpt-4o': { input: 2.50, output: 10.00, cached: 1.25 },
