@@ -245,7 +245,7 @@ const GLOSSARY: Record<string, { title: string; text: string }> = {
   today: { title: 'Today', text: 'Total estimated Copilot cost for requests made since local midnight.' },
   thisWeek: { title: 'This Week', text: 'Total estimated cost over the last 7 calendar days, including today.' },
   range: { title: 'Selected Range', text: 'Total estimated cost across the selected date window (7, 30, or 90 days).' },
-  contextWeight: { title: 'Context Weight', text: 'Approximate size of the prompt sent to the model on the most recent turn (fresh + cached input tokens). Indicates how heavy the conversation context currently is.' },
+  contextWeight: { title: 'Context Weight', text: 'Approximate size of the prompt sent to the model on the most recent turn (total input tokens, including any cached tokens). Indicates how heavy the conversation context currently is.' },
   inputFresh: { title: 'Input (fresh)', text: 'Newly sent prompt tokens that were not served from cache — billed at the full input rate.' },
   cacheRead: { title: 'Cache Read', text: "Input tokens served from the model's prompt cache. Cheaper than fresh input." },
   cacheWrite: { title: 'Cache Write', text: 'Tokens written into the prompt cache on this request. Billed once, then reused as Cache Read on later turns.' },

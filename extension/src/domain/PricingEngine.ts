@@ -143,6 +143,10 @@ export class PricingEngine {
     let bestPricing: ModelPricing | null = null;
 
     for (const [key, pricing] of this.pricing) {
+      // Skip special variants (e.g. "...-(fast-mode)-(preview)"): they carry
+      // non-standard rates and must not represent an unknown base model, nor be
+      // treated as a higher version than the clean base they derive from.
+      if (key.includes('(')) continue;
       const keySegments = key.split('-');
       const shared = sharedPrefixLength(targetSegments, keySegments);
       if (shared < MIN_SHARED_SEGMENTS) continue;

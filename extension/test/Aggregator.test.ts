@@ -137,8 +137,8 @@ describe('Aggregator', () => {
 
       const dashboard = aggregator.buildDashboard(spans, new Map(), 'session-1');
 
-      // Latest turn's largest prompt = 30k fresh + 20k cached = 50k
-      expect(dashboard.currentSession.contextWeightTokens).toBe(50_000);
+      // Latest turn's largest prompt = inputTokens alone (already includes the 20k cached) = 30k
+      expect(dashboard.currentSession.contextWeightTokens).toBe(30_000);
     });
 
     it('reports zero context weight when there is no active session', () => {
