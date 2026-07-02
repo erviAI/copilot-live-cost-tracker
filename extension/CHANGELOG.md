@@ -3,6 +3,15 @@
 All notable changes to the **Copilot Live Cost & Token Tracker** extension are
 documented in this file, with an emphasis on what changed for you, the user.
 
+## [1.4.2](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.4.1...v1.4.2) (2026-07-02)
+
+
+### Bug Fixes
+
+* context weight double-counting and pricing family fallback ([#50](https://github.com/erviAI/copilot-live-cost-tracker/issues/50)) ([80e681d](https://github.com/erviAI/copilot-live-cost-tracker/commit/80e681d85e3e0bf95ee68c9f0a34d2e63bd8635d))
+* **model:** Add claude-sonnet-5 and claude-opus-4-8-(fast-mode)-(preview) ([c75a586](https://github.com/erviAI/copilot-live-cost-tracker/commit/c75a5867b380f6e536f094f33cd6e84c24a7f00e))
+* **model:** Add kimi-k2.7-code ([4483493](https://github.com/erviAI/copilot-live-cost-tracker/commit/4483493e375d3a11cd63b60815d5501e18e81642))
+
 ## [1.4.1](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.4.0...v1.4.1) (2026-06-26)
 
 
