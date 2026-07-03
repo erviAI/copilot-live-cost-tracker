@@ -85,6 +85,11 @@
         "command": "copilotLiveCostTracker.enableOtel",
         "title": "Enable OpenTelemetry Tracing",
         "category": "Copilot Live Cost & Token Tracker"
+      },
+      {
+        "command": "copilotLiveCostTracker.toggleNotifications",
+        "title": "Toggle Budget Alert Notifications",
+        "category": "Copilot Live Cost & Token Tracker"
       }
     ],
     "menus": {
@@ -135,6 +140,11 @@
           "type": "number",
           "default": 50,
           "description": "Weekly cost limit threshold (USD)."
+        },
+        "copilotLiveCostTracker.notifications.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show budget alert notifications when session/daily/weekly spend crosses warning or limit thresholds. The status bar color coding still updates regardless of this setting."
         },
         "copilotLiveCostTracker.pricingOverrides": {
           "type": "object",

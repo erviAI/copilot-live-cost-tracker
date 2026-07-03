@@ -15,7 +15,7 @@ import { StatusBarController } from './presentation/StatusBarController.js';
 import { SidebarWebviewProvider } from './presentation/SidebarWebviewProvider.js';
 import { DashboardPanel } from './presentation/DashboardPanel.js';
 import { VsCodeNotifier } from './presentation/VsCodeNotifier.js';
-import { getPollingInterval, getBudgetThresholds, getPricingOverrides, getCostDataSource, getHistoryEnabled, getHistoryRetentionDays, getHistoryScrapeInterval, isOtelDbSpanExporterEnabled, OTEL_DB_SPAN_EXPORTER_SETTING } from './config.js';
+import { getPollingInterval, getBudgetThresholds, getNotificationsEnabled, getPricingOverrides, getCostDataSource, getHistoryEnabled, getHistoryRetentionDays, getHistoryScrapeInterval, isOtelDbSpanExporterEnabled, OTEL_DB_SPAN_EXPORTER_SETTING } from './config.js';
 import { createLogger } from './logger.js';
 
 let _trackingService: CostTrackingService | null = null;
@@ -55,7 +55,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
   _trackingService = trackingService;
 
-  const budgetService = new BudgetAlertService(getBudgetThresholds, new VsCodeNotifier());
+  const budgetService = new BudgetAlertService(getBudgetThresholds, new VsCodeNotifier(), getNotificationsEnabled);
 
   // --- Cost History (file-based persistence) ---
   if (getHistoryEnabled()) {
@@ -127,6 +127,9 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('copilotLiveCostTracker.enableOtel', () => {
       void enableOtelDbSpanExporter();
+    }),
+    vscode.commands.registerCommand('copilotLiveCostTracker.toggleNotifications', () => {
+      void toggleNotifications();
     })
   );
 
@@ -191,6 +194,17 @@ async function enableOtelDbSpanExporter(): Promise<void> {
     .update(OTEL_DB_SPAN_EXPORTER_SETTING, true, vscode.ConfigurationTarget.Global);
   void vscode.window.showInformationMessage(
     'OpenTelemetry tracing enabled. Run a Copilot Chat session to start capturing token usage.'
+  );
+}
+
+/** Toggle the budget alert notifications setting globally and confirm to the user. */
+async function toggleNotifications(): Promise<void> {
+  const next = !getNotificationsEnabled();
+  await vscode.workspace
+    .getConfiguration('copilotLiveCostTracker')
+    .update('notifications.enabled', next, vscode.ConfigurationTarget.Global);
+  void vscode.window.showInformationMessage(
+    `Copilot Live Cost budget alert notifications ${next ? 'enabled' : 'disabled'}.`
   );
 }
 

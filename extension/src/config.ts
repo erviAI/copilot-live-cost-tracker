@@ -42,6 +42,11 @@ export function getBudgetThresholds(): BudgetThresholds {
   };
 }
 
+/** Whether budget alert notifications are shown. Defaults to off. */
+export function getNotificationsEnabled(): boolean {
+  return vscode.workspace.getConfiguration(SECTION).get<boolean>('notifications.enabled', false);
+}
+
 function getBudgetThreshold(
   config: vscode.WorkspaceConfiguration,
   warningKey: string,

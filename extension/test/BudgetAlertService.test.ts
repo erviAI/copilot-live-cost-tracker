@@ -113,4 +113,32 @@ describe('BudgetAlertService', () => {
     service.evaluate(dashboard(2.5));
     expect(states).toEqual(['warning', 'limit']);
   });
+
+  describe('when notifications are disabled', () => {
+    it('does not fire notifications but still returns budget state', () => {
+      const disabled = new BudgetAlertService(() => thresholds, notifier, () => false);
+      const state = disabled.evaluate(dashboard(2.5));
+      expect(state.sessionLevel).toBe('limit');
+      expect(notifier.warnings).toHaveLength(0);
+      expect(notifier.errors).toHaveLength(0);
+    });
+
+    it('still emits budget state for status bar coloring', () => {
+      const disabled = new BudgetAlertService(() => thresholds, notifier, () => false);
+      const states: string[] = [];
+      disabled.onDidChangeBudgetState((s) => states.push(s.sessionLevel));
+      disabled.evaluate(dashboard(1.5));
+      expect(states).toEqual(['warning']);
+    });
+
+    it('fires an active breach once notifications are re-enabled', () => {
+      let enabled = false;
+      const toggled = new BudgetAlertService(() => thresholds, notifier, () => enabled);
+      toggled.evaluate(dashboard(1.5)); // disabled: nothing fires
+      expect(notifier.warnings).toHaveLength(0);
+      enabled = true;
+      toggled.evaluate(dashboard(1.5)); // enabled: breach still active, fires now
+      expect(notifier.warnings).toHaveLength(1);
+    });
+  });
 });

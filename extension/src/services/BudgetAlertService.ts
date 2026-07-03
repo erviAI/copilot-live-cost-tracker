@@ -22,7 +22,8 @@ export class BudgetAlertService implements vscode.Disposable {
 
   constructor(
     private readonly getThresholds: () => BudgetThresholds,
-    private readonly notifier: INotifier
+    private readonly notifier: INotifier,
+    private readonly getNotificationsEnabled: () => boolean = () => true
   ) {}
 
   /** Evaluate dashboard data against budget thresholds */
@@ -77,6 +78,11 @@ export class BudgetAlertService implements vscode.Disposable {
     cost: number,
     threshold: { warning: number; limit: number }
   ): void {
+    // Notifications disabled: skip firing and debounce bookkeeping entirely so
+    // re-enabling later still surfaces active breaches. Budget state emission in
+    // evaluate() is unaffected, so status bar colors keep updating.
+    if (!this.getNotificationsEnabled()) return;
+
     const alertKey = `${scope}:${level}`;
 
     // Clear alerts if level dropped back to OK
