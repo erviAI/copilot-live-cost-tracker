@@ -15,6 +15,9 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'gpt-5.4-mini': { input: 0.75, output: 4.50, cached: 0.075 },
   'gpt-5.4-nano': { input: 0.20, output: 1.25, cached: 0.02 },
   'gpt-5.5': { input: 5.00, output: 30.00, cached: 0.50 },
+  'gpt-5.6-luna': { input: 1.00, output: 6.00, cached: 0.10 },
+  'gpt-5.6-sol': { input: 5.00, output: 30.00, cached: 0.50 },
+  'gpt-5.6-terra': { input: 2.50, output: 15.00, cached: 0.25 },
 
   // Anthropic (includes cache write cost)
   'claude-haiku-4-5': { input: 1.00, output: 5.00, cached: 0.10, cacheWrite: 1.25 },
