@@ -58,6 +58,15 @@ function toBudgetValue(value: unknown, fallback: number): number {
   return Math.min(value, MAX_BUDGET_THRESHOLD);
 }
 
+/**
+ * Whether budget threshold breaches should raise VS Code popup notifications.
+ * Opt-in: off by default so the extension stays quiet unless the user asks for
+ * toasts. Status bar and dashboard indicators are unaffected by this setting.
+ */
+export function areBudgetNotificationsEnabled(): boolean {
+  return vscode.workspace.getConfiguration(SECTION).get<boolean>('budget.notifications.enabled', false);
+}
+
 export function getPricingOverrides(): Record<string, ModelPricing> | undefined {
   const config = vscode.workspace.getConfiguration(SECTION);
   const overrides = config.get<Record<string, unknown>>('pricingOverrides');

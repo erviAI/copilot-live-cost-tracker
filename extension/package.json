@@ -136,6 +136,11 @@
           "default": 50,
           "description": "Weekly cost limit threshold (USD)."
         },
+        "copilotLiveCostTracker.budget.notifications.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show VS Code popup notifications when a budget warning or limit threshold is crossed. Off by default; the status bar and dashboard indicators still change color regardless of this setting."
+        },
         "copilotLiveCostTracker.pricingOverrides": {
           "type": "object",
           "default": {},

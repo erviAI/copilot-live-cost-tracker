@@ -130,6 +130,7 @@ All settings are under `copilotLiveCostTracker.*` in VS Code Settings:
 | `budget.daily.limit` | `$50` | Daily cost red threshold |
 | `budget.weekly.warning` | `$25` | Weekly cost yellow threshold |
 | `budget.weekly.limit` | `$50` | Weekly cost red threshold |
+| `budget.notifications.enabled` | `false` | Show popup notifications when a threshold is crossed. Off by default — status bar and dashboard indicators still change color either way |
 | `pricingOverrides` | `{}` | Custom model pricing (per 1M tokens) — see example below |
 | `costDataSource` | `agent-traces-only` | Data source strategy: `agent-traces-only` (recommended) or `with-fallback` (use debug logs when `agent-traces.db` is unavailable; cache-write data is then missing) |
 | `history.enabled` | `true` | Persist daily aggregates to disk |

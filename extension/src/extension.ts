@@ -143,6 +143,12 @@ export function activate(context: vscode.ExtensionContext): void {
         trackingService.setScrapeInterval(getHistoryScrapeInterval());
         trackingService.onConfigurationChanged();
       }
+      // Re-arm the alert debounce when notifications are toggled, so enabling
+      // them mid-session still surfaces an already-breached threshold instead of
+      // it being swallowed as "already fired" while popups were suppressed.
+      if (e.affectsConfiguration('copilotLiveCostTracker.budget.notifications.enabled')) {
+        budgetService.resetAlerts();
+      }
     })
   );
 
