@@ -150,4 +150,27 @@ describe('PricingEngine', () => {
       expect(models.length).toBeGreaterThan(10);
     });
   });
+
+  describe('long context tier', () => {
+    it('exposes the published overflow tier for tiered models', () => {
+      const pricing = engine.resolve('gpt-5.6-sol')!;
+      expect(pricing.longContext).toEqual({
+        thresholdTokens: 272_000,
+        input: 10.0,
+        output: 45.0,
+        cached: 1.0,
+      });
+    });
+
+    it('omits the tier for flat-priced models', () => {
+      expect(engine.resolve('claude-opus-5')!.longContext).toBeUndefined();
+      expect(engine.resolve('gpt-5-mini')!.longContext).toBeUndefined();
+    });
+
+    it('preserves the tier through fuzzy version matching', () => {
+      const pricing = engine.resolve('gpt-5.6-sol-20260101')!;
+      expect(pricing.input).toBe(5.0);
+      expect(pricing.longContext?.thresholdTokens).toBe(272_000);
+    });
+  });
 });

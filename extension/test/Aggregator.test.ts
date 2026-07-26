@@ -27,6 +27,7 @@ function makeSpan(overrides: Partial<Span> = {}): Span {
     statusCode: 1,
     statusMessage: null,
     toolName: null,
+    maxPromptTokens: null,
     ...overrides,
   };
 }
@@ -76,6 +77,35 @@ describe('Aggregator', () => {
       expect(result.modelTurns).toBe(0);
       expect(result.totalCost).toBe(0);
       expect(result.byModel).toHaveLength(0);
+    });
+
+    it('prices each request against the long-context threshold individually', () => {
+      // Only the first request crosses GPT-5.6 Sol's 272K threshold. Summing the
+      // two token counts first would push the combined 400K over the threshold
+      // and wrongly bill both at long-context rates ($2.74 instead of $2.45).
+      const spans = [
+        makeSpan({
+          spanId: 'a', responseModel: 'gpt-5.6-sol', maxPromptTokens: 922_000,
+          inputTokens: 300_000, cachedTokens: 100_000, outputTokens: 1_000, cacheWriteTokens: 0,
+        }),
+        makeSpan({
+          spanId: 'b', responseModel: 'gpt-5.6-sol', maxPromptTokens: 922_000,
+          inputTokens: 100_000, cachedTokens: 50_000, outputTokens: 1_000, cacheWriteTokens: 0,
+        }),
+      ];
+
+      const result = aggregator.aggregatePeriod(spans);
+
+      // Folded into a single row for the model.
+      expect(result.byModel).toHaveLength(1);
+      const sol = result.byModel[0];
+      expect(sol.model).toBe('gpt-5.6-sol');
+      expect(sol.calls).toBe(2);
+      expect(sol.inputTokens).toBe(400_000);
+
+      // $2.145 (long context) + $0.305 (default) = $2.45
+      expect(sol.totalCost).toBeCloseTo(2.45, 4);
+      expect(result.totalCost).toBeCloseTo(2.45, 4);
     });
   });
 

@@ -26,6 +26,14 @@ export interface Span {
   statusCode: number;
   statusMessage: string | null;
   toolName: string | null;
+  /**
+   * The prompt-token budget the request was issued with
+   * (`copilot_chat.request.max_prompt_tokens`), or null when the attribute is
+   * absent. Reveals which context window the model picker was set to, which
+   * distinguishes a default-context request from an extended (long context)
+   * one — the model identifier itself is identical for both.
+   */
+  maxPromptTokens: number | null;
   /** Tool call arguments (JSON), populated only for execute_tool spans. */
   toolArgs?: string | null;
   /** Tool call result/output, populated only for execute_tool spans (capped). */
@@ -241,11 +249,28 @@ export interface ModelPricing {
   cached: number;
   cacheWrite?: number;
   /**
+   * Overflow rates for models GitHub prices in two tiers. Requests whose input
+   * exceeds `thresholdTokens` bill entirely at these rates instead of the
+   * default ones. Absent for models with flat pricing (all Anthropic models,
+   * and any model listed as "Not applicable" in the published table).
+   */
+  longContext?: LongContextPricing;
+  /**
    * True when these rates were inferred from a related model family rather than
    * matched exactly (e.g. a newly launched version not yet in the pricing table).
    * Costs derived from estimated pricing should be surfaced as tentative.
    */
   estimated?: boolean;
+}
+
+/** Overflow ("Long context") tier rates and the input-token threshold that activates them. */
+export interface LongContextPricing {
+  /** Requests with more input tokens than this bill at the rates below. */
+  thresholdTokens: number;
+  input: number;
+  output: number;
+  cached: number;
+  cacheWrite?: number;
 }
 
 // --- Cost History Persistence Types ---
