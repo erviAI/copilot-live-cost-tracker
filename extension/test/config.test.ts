@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { getBudgetThresholds } from '../src/config.js';
+import { areBudgetNotificationsEnabled, getBudgetThresholds } from '../src/config.js';
 import { __resetMockConfiguration, __setMockConfiguration } from './mocks/vscode.js';
 
 describe('config', () => {
@@ -40,6 +40,18 @@ describe('config', () => {
         daily: { warning: 20, limit: 50 },
         weekly: { warning: 25, limit: 1_000_000 },
       });
+    });
+  });
+
+  describe('areBudgetNotificationsEnabled', () => {
+    it('defaults to disabled when unset', () => {
+      expect(areBudgetNotificationsEnabled()).toBe(false);
+    });
+
+    it('returns true when the user opts in', () => {
+      __setMockConfiguration({ 'budget.notifications.enabled': true });
+
+      expect(areBudgetNotificationsEnabled()).toBe(true);
     });
   });
 });
