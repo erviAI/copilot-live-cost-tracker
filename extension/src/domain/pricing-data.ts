@@ -28,6 +28,7 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'claude-opus-4-6': { input: 5.00, output: 25.00, cached: 0.50, cacheWrite: 6.25 },
   'claude-opus-4-7': { input: 5.00, output: 25.00, cached: 0.50, cacheWrite: 6.25 },
   'claude-opus-4-8': { input: 5.00, output: 25.00, cached: 0.50, cacheWrite: 6.25 },
+  'claude-opus-5': { input: 5.00, output: 25.00, cached: 0.50, cacheWrite: 6.25 },
   'claude-sonnet-5': { input: 2.00, output: 10.00, cached: 0.20, cacheWrite: 2.50 },
   'claude-opus-4-8-(fast-mode)-(preview)': { input: 10.00, output: 50.00, cached: 1.00, cacheWrite: 12.50 },
   'claude-fable-5': { input: 10.00, output: 50.00, cached: 1.00, cacheWrite: 12.50 },
@@ -37,6 +38,7 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'gemini-3-flash': { input: 0.50, output: 3.00, cached: 0.05 },
   'gemini-3.1-pro': { input: 2.00, output: 12.00, cached: 0.20 },
   'gemini-3.5-flash': { input: 1.50, output: 9.00, cached: 0.15 },
+  'gemini-3.6-flash': { input: 1.50, output: 7.50, cached: 0.15 },
 
   // GitHub fine-tuned
   'raptor-mini': { input: 0.25, output: 2.00, cached: 0.025 },
