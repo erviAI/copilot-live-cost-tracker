@@ -3,6 +3,13 @@
 All notable changes to the **Copilot Live Cost & Token Tracker** extension are
 documented in this file, with an emphasis on what changed for you, the user.
 
+## [1.5.0](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.4.4...v1.5.0) (2026-07-26)
+
+
+### Features
+
+* **pricing:** bill long-context requests at GitHub's overflow tier ([#61](https://github.com/erviAI/copilot-live-cost-tracker/issues/61)) ([b32351c](https://github.com/erviAI/copilot-live-cost-tracker/commit/b32351c1f43e248dc4bb248e832144ba9cf056aa))
+
 ## [1.4.4](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.4.3...v1.4.4) (2026-07-26)
 
 
