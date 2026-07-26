@@ -28,11 +28,15 @@ const SPAN_SELECT_SQL = `
     s.turn_index AS turnIndex,
     s.status_code AS statusCode,
     s.status_message AS statusMessage,
-    s.tool_name AS toolName
+    s.tool_name AS toolName,
+    CAST(mpt.value AS INTEGER) AS maxPromptTokens
   FROM spans s
   LEFT JOIN span_attributes a
     ON a.span_id = s.span_id
     AND a.key = 'gen_ai.usage.cache_creation.input_tokens'
+  LEFT JOIN span_attributes mpt
+    ON mpt.span_id = s.span_id
+    AND mpt.key = 'copilot_chat.request.max_prompt_tokens'
 `;
 
 /** Max characters of tool result kept to bound the webview payload. */
@@ -67,6 +71,7 @@ const TOOL_SPAN_SELECT_SQL = `
     s.status_code AS statusCode,
     s.status_message AS statusMessage,
     s.tool_name AS toolName,
+    NULL AS maxPromptTokens,
     substr(args.value, 1, ${MAX_TOOL_ARGS_CHARS}) AS toolArgs,
     substr(res.value, 1, ${MAX_TOOL_RESULT_CHARS}) AS toolResult
   FROM spans s

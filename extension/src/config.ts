@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { BudgetThresholds, ModelPricing } from './domain/models.js';
+import type { BudgetThresholds, LongContextPricing, ModelPricing } from './domain/models.js';
 
 const SECTION = 'copilotLiveCostTracker';
 const MAX_BUDGET_THRESHOLD = 1_000_000;
@@ -84,7 +84,35 @@ function toModelPricing(value: unknown): ModelPricing | null {
     if (!isRate(v.cacheWrite)) return null;
     pricing.cacheWrite = v.cacheWrite;
   }
+  if (v.longContext !== undefined) {
+    const tier = toLongContextPricing(v.longContext);
+    if (!tier) return null;
+    pricing.longContext = tier;
+  }
   return pricing;
+}
+
+/** Validate an untrusted long-context tier, or null if malformed. */
+function toLongContextPricing(value: unknown): LongContextPricing | null {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as Record<string, unknown>;
+  const isRate = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+  if (!isRate(v.input) || !isRate(v.output) || !isRate(v.cached)) return null;
+  // A non-positive threshold would bill every request at the overflow tier.
+  if (typeof v.thresholdTokens !== 'number' || !Number.isFinite(v.thresholdTokens) || v.thresholdTokens <= 0) {
+    return null;
+  }
+  const tier: LongContextPricing = {
+    thresholdTokens: v.thresholdTokens,
+    input: v.input,
+    output: v.output,
+    cached: v.cached,
+  };
+  if (v.cacheWrite !== undefined) {
+    if (!isRate(v.cacheWrite)) return null;
+    tier.cacheWrite = v.cacheWrite;
+  }
+  return tier;
 }
 
 export type CostDataSource = 'agent-traces-only' | 'with-fallback';

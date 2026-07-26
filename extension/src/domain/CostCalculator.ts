@@ -15,6 +15,7 @@ export class CostCalculator {
    * @param outputTokens Total output tokens
    * @param cachedTokens Tokens served from cache (cache reads)
    * @param cacheWriteTokens Tokens written to cache
+   * @param maxPromptTokens Prompt-token budget the request was issued with, when known
    * @returns Itemized cost breakdown, or null if model pricing is unknown
    */
   calculate(
@@ -22,13 +23,16 @@ export class CostCalculator {
     inputTokens: number,
     outputTokens: number,
     cachedTokens: number,
-    cacheWriteTokens: number
+    cacheWriteTokens: number,
+    maxPromptTokens?: number | null
   ): CostBreakdown | null {
     const pricing = this.pricingEngine.resolve(model);
     if (!pricing) return null;
 
-    const breakdown = this.calculateWithRates(pricing, inputTokens, outputTokens, cachedTokens, cacheWriteTokens);
+    const rates = selectTierRates(pricing, inputTokens, maxPromptTokens);
+    const breakdown = this.calculateWithRates(rates, inputTokens, outputTokens, cachedTokens, cacheWriteTokens);
     if (pricing.estimated) breakdown.estimated = true;
+    if (rates !== pricing) breakdown.longContext = true;
     return breakdown;
   }
 
@@ -84,6 +88,45 @@ export interface CostBreakdown {
   totalCost: number;
   /** True when these costs were derived from estimated (family-inferred) pricing. */
   estimated?: boolean;
+  /** True when the request was billed at the model's long-context tier rates. */
+  longContext?: boolean;
+}
+
+/**
+ * Pick the rate set a request is billed at.
+ *
+ * GitHub prices some models in two tiers separated by an input-token threshold
+ * ("≤ 272K" vs "> 272K"); a request that crosses it bills entirely at the
+ * higher rates. The tier cannot be read off the model identifier — the picker's
+ * default and extended-context entries report the same name — so it is derived
+ * from the request's own input size.
+ *
+ * `maxPromptTokens` (the prompt budget the request was issued with) acts as a
+ * guard: a request that could not physically hold more than the threshold was
+ * never on the extended context window, so it cannot be long-context billed no
+ * matter what its token counts say. That keeps aggregate or malformed rows from
+ * being priced up. When the value is unknown the token count decides alone.
+ */
+function selectTierRates(
+  pricing: ModelPricing,
+  inputTokens: number,
+  maxPromptTokens?: number | null
+): ModelPricing {
+  const tier = pricing.longContext;
+  if (!tier) return pricing;
+  if (!(inputTokens > tier.thresholdTokens)) return pricing;
+  if (typeof maxPromptTokens === 'number' && Number.isFinite(maxPromptTokens)
+    && maxPromptTokens <= tier.thresholdTokens) {
+    return pricing;
+  }
+  return {
+    input: tier.input,
+    output: tier.output,
+    cached: tier.cached,
+    // Fall back to the default tier's cache-write rate so an Anthropic-style
+    // model keeps its cache-only input billing if it ever gains a tier.
+    cacheWrite: tier.cacheWrite ?? pricing.cacheWrite,
+  };
 }
 
 /** Coerce an untrusted token count to a finite, non-negative number. */

@@ -176,6 +176,7 @@ async function parseMainJsonl(file: string, sessionId: string): Promise<Span[]> 
       statusCode: 1,
       statusMessage: null,
       toolName: null,
+      maxPromptTokens: null, // not present in debug logs
     });
   }
   return spans;

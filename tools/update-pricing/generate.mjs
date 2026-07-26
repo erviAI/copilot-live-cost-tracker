@@ -66,6 +66,25 @@ function isLongContextTier(entry) {
 }
 
 /**
+ * Parse GitHub's threshold cell into a token count. The published values are
+ * `≤ 272K` on the default row and `> 272K` on the overflow row (both describe
+ * the same boundary), or `Not applicable` for flat-priced models.
+ * @param {unknown} raw
+ * @returns {number | null} token count, or null when the model is not tiered
+ */
+function parseThresholdTokens(raw) {
+  const cleaned = String(raw ?? '').replace(/[\u2264\u2265<>=\s]/g, '');
+  if (cleaned === '') return null;
+  const m = /^([\d.]+)([KM]?)$/i.exec(cleaned);
+  if (!m) return null;
+  const value = Number(m[1]);
+  if (!Number.isFinite(value)) return null;
+  const unit = m[2].toUpperCase();
+  const multiplier = unit === 'M' ? 1_000_000 : unit === 'K' ? 1_000 : 1;
+  return Math.round(value * multiplier);
+}
+
+/**
  * Turn a "$5.00" price string into a JS numeric literal string, preserving the
  * source decimals so the generated file matches GitHub's published precision.
  * @param {unknown} raw
@@ -103,6 +122,19 @@ function renderEntry(key, fields) {
   const parts = [`input: ${fields.input}`, `output: ${fields.output}`, `cached: ${fields.cached}`];
   if (fields.cacheWrite !== undefined && fields.cacheWrite !== null) {
     parts.push(`cacheWrite: ${fields.cacheWrite}`);
+  }
+  if (fields.longContext) {
+    const lc = fields.longContext;
+    const lcParts = [
+      `thresholdTokens: ${lc.thresholdTokens}`,
+      `input: ${lc.input}`,
+      `output: ${lc.output}`,
+      `cached: ${lc.cached}`,
+    ];
+    if (lc.cacheWrite !== undefined && lc.cacheWrite !== null) {
+      lcParts.push(`cacheWrite: ${lc.cacheWrite}`);
+    }
+    parts.push(`longContext: { ${lcParts.join(', ')} }`);
   }
   return `  '${key}': { ${parts.join(', ')} },`;
 }
@@ -158,15 +190,31 @@ function parseGeneratedPricing(content) {
   const map = new Map();
   if (!content) return map;
   const lineRe = /^\s*'([^']+)':\s*\{\s*(.+?)\s*\},?\s*$/;
+  /** Split a flat "a: 1, b: 2" body into numeric fields. */
+  const parseFlat = (body) => {
+    /** @type {Record<string, number>} */
+    const fields = {};
+    for (const pair of body.split(',')) {
+      const [name, value] = pair.split(':').map((s) => s.trim());
+      if (name && value !== undefined && value !== '' && !Number.isNaN(Number(value))) {
+        fields[name] = Number(value);
+      }
+    }
+    return fields;
+  };
   for (const line of content.split(/\r?\n/)) {
     const m = lineRe.exec(line);
     if (!m) continue;
-    /** @type {Record<string, number>} */
-    const fields = {};
-    for (const pair of m[2].split(',')) {
-      const [name, value] = pair.split(':').map((s) => s.trim());
-      if (name && value !== undefined && !Number.isNaN(Number(value))) {
-        fields[name] = Number(value);
+    // Pull the nested tier out first: its rates share the same field names as
+    // the default tier, so leaving it inline would overwrite them when the
+    // body is split on commas.
+    const lcMatch = /longContext\s*:\s*\{([^}]*)\}/.exec(m[2]);
+    const flatBody = m[2].replace(/\w+\s*:\s*\{[^}]*\}/g, '');
+    const fields = parseFlat(flatBody);
+    if (lcMatch) {
+      const lc = parseFlat(lcMatch[1]);
+      if (lc.thresholdTokens !== undefined && lc.input !== undefined) {
+        fields.longContext = lc;
       }
     }
     if (fields.input !== undefined && fields.output !== undefined && fields.cached !== undefined) {
@@ -182,7 +230,7 @@ function parseGeneratedPricing(content) {
  * @param {{ _comment?: string, models: Record<string, any> }} extrasObj
  */
 function serializeExtras(extrasObj) {
-  const fieldOrder = ['input', 'output', 'cached', 'cacheWrite', 'deprecated'];
+  const fieldOrder = ['input', 'output', 'cached', 'cacheWrite', 'longContext', 'deprecated'];
   const models = extrasObj.models || {};
   const modelLines = Object.entries(models).map(([key, m]) => {
     const fields = fieldOrder
@@ -206,6 +254,8 @@ async function build() {
 
   const seenKeys = new Set();
   const byProvider = new Map();
+  /** key -> the emitted row object, so a later tier row can be merged into it. */
+  const rowsByKey = new Map();
   for (const entry of entries) {
     const provider = String(entry.provider || '').toLowerCase();
     const key = toKey(entry.model, provider);
@@ -219,16 +269,31 @@ async function build() {
     }
     if (seenKeys.has(key)) {
       // GitHub publishes tiered pricing as multiple rows sharing the same model
-      // name (a "Default" tier plus a "Long context" overflow tier for inputs
-      // above a threshold). Telemetry does not distinguish tiers, so we keep the
-      // headline Default tier (first row) and skip the long-context overflow row.
-      if (isLongContextTier(entry)) continue;
+      // name: a "Default" tier plus a "Long context" tier that applies once a
+      // request's input exceeds the published threshold. Merge the overflow row
+      // into the default entry so both sets of rates are available at runtime.
+      if (isLongContextTier(entry)) {
+        const target = rowsByKey.get(key);
+        if (!target) throw new Error(`Long context tier for "${key}" has no default row to merge into.`);
+        const thresholdTokens = parseThresholdTokens(entry.threshold) ?? target.thresholdTokens;
+        if (thresholdTokens === null || thresholdTokens === undefined) {
+          throw new Error(`Long context tier for "${key}" has no parsable input-token threshold.`);
+        }
+        target.longContext = { thresholdTokens, input, output, cached, cacheWrite };
+        continue;
+      }
       throw new Error(`Duplicate key generated: "${key}".`);
+    }
+    if (isLongContextTier(entry)) {
+      // Merging relies on the default row being published first.
+      throw new Error(`Long context tier for "${key}" appeared before its default tier.`);
     }
     seenKeys.add(key);
 
+    const row = { key, input, output, cached, cacheWrite, thresholdTokens: parseThresholdTokens(entry.threshold) };
+    rowsByKey.set(key, row);
     if (!byProvider.has(provider)) byProvider.set(provider, []);
-    byProvider.get(provider).push({ key, input, output, cached, cacheWrite });
+    byProvider.get(provider).push(row);
   }
 
   const lines = [];
@@ -290,6 +355,7 @@ async function build() {
       output: rates.output,
       cached: rates.cached,
       ...(rates.cacheWrite !== undefined ? { cacheWrite: rates.cacheWrite } : {}),
+      ...(rates.longContext !== undefined ? { longContext: rates.longContext } : {}),
       deprecated: true,
     };
     extrasChanged = true;
@@ -306,6 +372,14 @@ async function build() {
       output: numberLiteral(m.output),
       cached: numberLiteral(m.cached),
       cacheWrite: m.cacheWrite === undefined ? undefined : numberLiteral(m.cacheWrite),
+      longContext: m.longContext === undefined ? undefined : {
+        thresholdTokens: m.longContext.thresholdTokens,
+        input: numberLiteral(m.longContext.input),
+        output: numberLiteral(m.longContext.output),
+        cached: numberLiteral(m.longContext.cached),
+        cacheWrite:
+          m.longContext.cacheWrite === undefined ? undefined : numberLiteral(m.longContext.cacheWrite),
+      },
     });
 
   const additionalKeys = Object.keys(extras).filter((k) => !seenKeys.has(k) && !extras[k].deprecated);

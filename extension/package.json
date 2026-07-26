@@ -139,7 +139,7 @@
         "copilotLiveCostTracker.pricingOverrides": {
           "type": "object",
           "default": {},
-          "description": "Override pricing for specific models. Keys are model name patterns, values are objects with input/output/cached/cacheWrite rates per 1M tokens.",
+          "description": "Override pricing for specific models. Keys are model name patterns, values are objects with input/output/cached/cacheWrite rates per 1M tokens. Add longContext to override the overflow tier billed above a given input-token threshold.",
           "additionalProperties": {
             "type": "object",
             "properties": {
@@ -154,6 +154,28 @@
               },
               "cacheWrite": {
                 "type": "number"
+              },
+              "longContext": {
+                "type": "object",
+                "description": "Rates billed when a request's input tokens exceed thresholdTokens.",
+                "properties": {
+                  "thresholdTokens": {
+                    "type": "number",
+                    "description": "Input-token count above which the rates below apply."
+                  },
+                  "input": {
+                    "type": "number"
+                  },
+                  "output": {
+                    "type": "number"
+                  },
+                  "cached": {
+                    "type": "number"
+                  },
+                  "cacheWrite": {
+                    "type": "number"
+                  }
+                }
               }
             }
           }

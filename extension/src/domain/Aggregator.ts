@@ -85,46 +85,66 @@ export class Aggregator {
    * Aggregate a set of spans into a PeriodCost with per-model and per-workspace breakdown.
    */
   aggregatePeriod(spans: Span[], sessionWorkspaces?: Map<string, string | null>): PeriodCost {
-    const byModel = new Map<string, {
+    type ModelAcc = {
       calls: number;
       inputTokens: number;
       outputTokens: number;
       cachedTokens: number;
       cacheWriteTokens: number;
-    }>();
+      freshInputCost: number;
+      cacheReadCost: number;
+      cacheWriteCost: number;
+      outputCost: number;
+      totalCost: number;
+      estimated: boolean;
+      unpriced: boolean;
+    };
+    const byModel = new Map<string, ModelAcc>();
 
-    // Workspace accumulator: workspace → { requests, sessionIds, per-model token totals }.
-    // Costs are derived once from the aggregated per-model token totals (below) so
-    // workspace totals use the exact same rounding path as the per-model totals.
-    type WsTokens = { inputTokens: number; outputTokens: number; cachedTokens: number; cacheWriteTokens: number };
-    const byWs = new Map<string, { requests: number; sessionIds: Set<string>; byModel: Map<string, WsTokens> }>();
+    // Workspace accumulator: workspace → { requests, sessionIds, cost }.
+    const byWs = new Map<string, { requests: number; sessionIds: Set<string>; totalCost: number }>();
     const traceToSession = buildTraceToSessionMap(spans);
 
     for (const span of spans) {
       const model = span.responseModel ?? span.requestModel ?? 'unknown';
       const existing = byModel.get(model) ?? {
         calls: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0,
+        freshInputCost: 0, cacheReadCost: 0, cacheWriteCost: 0, outputCost: 0, totalCost: 0,
+        estimated: false, unpriced: false,
       };
       existing.calls++;
       existing.inputTokens += span.inputTokens;
       existing.outputTokens += span.outputTokens;
       existing.cachedTokens += span.cachedTokens;
       existing.cacheWriteTokens += span.cacheWriteTokens;
+
+      // Cost is accumulated per span rather than from the summed token totals:
+      // the long-context pricing tier is chosen from each individual request's
+      // input size, so summing first would erase which requests crossed the
+      // threshold and bill everything at one tier.
+      const cost = this.calculator.calculate(
+        model, span.inputTokens, span.outputTokens, span.cachedTokens, span.cacheWriteTokens, span.maxPromptTokens
+      );
+      if (cost) {
+        existing.freshInputCost += cost.freshInputCost;
+        existing.cacheReadCost += cost.cacheReadCost;
+        existing.cacheWriteCost += cost.cacheWriteCost;
+        existing.outputCost += cost.outputCost;
+        existing.totalCost += cost.totalCost;
+        if (cost.estimated) existing.estimated = true;
+      } else {
+        existing.unpriced = true;
+      }
       byModel.set(model, existing);
 
-      // Accumulate per-workspace token totals if mapping provided
+      // Accumulate per-workspace cost if mapping provided
       if (sessionWorkspaces) {
         const sessionId = getWorkspaceSessionId(span, traceToSession);
         const ws = (sessionId ? sessionWorkspaces.get(sessionId) : null) ?? 'Unknown';
-        const wsEntry = byWs.get(ws) ?? { requests: 0, sessionIds: new Set<string>(), byModel: new Map<string, WsTokens>() };
+        const wsEntry = byWs.get(ws) ?? { requests: 0, sessionIds: new Set<string>(), totalCost: 0 };
         wsEntry.requests++;
         if (sessionId) { wsEntry.sessionIds.add(sessionId); }
-        const wsModel = wsEntry.byModel.get(model) ?? { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0 };
-        wsModel.inputTokens += span.inputTokens;
-        wsModel.outputTokens += span.outputTokens;
-        wsModel.cachedTokens += span.cachedTokens;
-        wsModel.cacheWriteTokens += span.cacheWriteTokens;
-        wsEntry.byModel.set(model, wsModel);
+        wsEntry.totalCost += cost?.totalCost ?? 0;
         byWs.set(ws, wsEntry);
       }
     }
@@ -136,10 +156,6 @@ export class Aggregator {
     let totalCached = 0;
 
     for (const [model, data] of byModel) {
-      const cost = this.calculator.calculate(
-        model, data.inputTokens, data.outputTokens, data.cachedTokens, data.cacheWriteTokens
-      );
-
       const modelCost: ModelCost = {
         model,
         calls: data.calls,
@@ -147,13 +163,13 @@ export class Aggregator {
         outputTokens: data.outputTokens,
         cachedTokens: data.cachedTokens,
         cacheWriteTokens: data.cacheWriteTokens,
-        freshInputCost: cost?.freshInputCost ?? 0,
-        cacheReadCost: cost?.cacheReadCost ?? 0,
-        cacheWriteCost: cost?.cacheWriteCost ?? 0,
-        outputCost: cost?.outputCost ?? 0,
-        totalCost: cost?.totalCost ?? 0,
-        estimated: cost?.estimated ?? false,
-        unpriced: cost === null,
+        freshInputCost: data.freshInputCost,
+        cacheReadCost: data.cacheReadCost,
+        cacheWriteCost: data.cacheWriteCost,
+        outputCost: data.outputCost,
+        totalCost: data.totalCost,
+        estimated: data.estimated,
+        unpriced: data.unpriced,
       };
 
       modelCosts.push(modelCost);
@@ -163,21 +179,13 @@ export class Aggregator {
       totalCached += data.cachedTokens;
     }
 
-    // Build workspace costs from the aggregated per-model token totals so they
-    // are consistent with the per-model costs above (one rounding path, and one
-    // calculate() call per workspace+model group rather than per span).
+    // Workspace costs are accumulated from the same per-span figures as the
+    // per-model totals above, so both views stay consistent.
     const workspaceCosts: WorkspaceCost[] = [];
     for (const [workspace, data] of byWs) {
-      let wsTotal = 0;
-      for (const [model, tokens] of data.byModel) {
-        const cost = this.calculator.calculate(
-          model, tokens.inputTokens, tokens.outputTokens, tokens.cachedTokens, tokens.cacheWriteTokens
-        );
-        wsTotal += cost?.totalCost ?? 0;
-      }
       workspaceCosts.push({
         workspace,
-        totalCost: wsTotal,
+        totalCost: data.totalCost,
         modelTurns: data.requests,
         sessionCount: data.sessionIds.size,
       });
@@ -398,7 +406,7 @@ export class Aggregator {
         const subDuration = subSpans.reduce((sum, s) => sum + (s.endTimeMs - s.startTimeMs), 0);
         const subSpanDetails: SpanDetail[] = subSpans.map(s => {
           const model = s.responseModel ?? s.requestModel ?? 'unknown';
-          const cost = this.calculator.calculate(model, s.inputTokens, s.outputTokens, s.cachedTokens, s.cacheWriteTokens);
+          const cost = this.calculator.calculate(model, s.inputTokens, s.outputTokens, s.cachedTokens, s.cacheWriteTokens, s.maxPromptTokens);
           return {
             spanId: s.spanId, traceId: s.traceId, agentName: s.agentName, model,
             inputTokens: s.inputTokens, outputTokens: s.outputTokens,
@@ -435,7 +443,7 @@ export class Aggregator {
 
       const spanDetails: SpanDetail[] = parentSpans.map(s => {
         const model = s.responseModel ?? s.requestModel ?? 'unknown';
-        const cost = this.calculator.calculate(model, s.inputTokens, s.outputTokens, s.cachedTokens, s.cacheWriteTokens);
+        const cost = this.calculator.calculate(model, s.inputTokens, s.outputTokens, s.cachedTokens, s.cacheWriteTokens, s.maxPromptTokens);
         return {
           spanId: s.spanId, traceId: s.traceId, agentName: s.agentName, model,
           inputTokens: s.inputTokens, outputTokens: s.outputTokens,
