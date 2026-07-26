@@ -3,6 +3,13 @@
 All notable changes to the **Copilot Live Cost & Token Tracker** extension are
 documented in this file, with an emphasis on what changed for you, the user.
 
+## [1.6.0](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.5.0...v1.6.0) (2026-07-26)
+
+
+### Features
+
+* make budget alert notifications opt-in via setting ([#63](https://github.com/erviAI/copilot-live-cost-tracker/issues/63)) ([614fb07](https://github.com/erviAI/copilot-live-cost-tracker/commit/614fb071bb6476ff1929bbe77dc8adf689af8e6e))
+
 ## [1.5.0](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.4.4...v1.5.0) (2026-07-26)
 
 
