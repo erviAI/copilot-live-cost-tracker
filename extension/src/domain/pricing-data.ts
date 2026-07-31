@@ -15,9 +15,9 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'gpt-5.4-mini': { input: 0.75, output: 4.50, cached: 0.075 },
   'gpt-5.4-nano': { input: 0.20, output: 1.25, cached: 0.02 },
   'gpt-5.5': { input: 5.00, output: 30.00, cached: 0.50, longContext: { thresholdTokens: 272000, input: 10.00, output: 45.00, cached: 1.00 } },
-  'gpt-5.6-luna': { input: 1.00, output: 6.00, cached: 0.10, longContext: { thresholdTokens: 200000, input: 2.00, output: 9.00, cached: 0.20 } },
+  'gpt-5.6-luna': { input: 0.20, output: 1.20, cached: 0.02, longContext: { thresholdTokens: 200000, input: 0.40, output: 1.80, cached: 0.04 } },
   'gpt-5.6-sol': { input: 5.00, output: 30.00, cached: 0.50, longContext: { thresholdTokens: 272000, input: 10.00, output: 45.00, cached: 1.00 } },
-  'gpt-5.6-terra': { input: 2.50, output: 15.00, cached: 0.25, longContext: { thresholdTokens: 272000, input: 5.00, output: 22.50, cached: 0.50 } },
+  'gpt-5.6-terra': { input: 2.00, output: 12.00, cached: 0.20, longContext: { thresholdTokens: 272000, input: 4.00, output: 18.00, cached: 0.40 } },
 
   // Anthropic (includes cache write cost)
   'claude-haiku-4-5': { input: 1.00, output: 5.00, cached: 0.10, cacheWrite: 1.25 },
@@ -39,6 +39,9 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'gemini-3.1-pro': { input: 2.00, output: 12.00, cached: 0.20, longContext: { thresholdTokens: 200000, input: 4.00, output: 18.00, cached: 0.40 } },
   'gemini-3.5-flash': { input: 1.50, output: 9.00, cached: 0.15 },
   'gemini-3.6-flash': { input: 1.50, output: 7.50, cached: 0.15 },
+
+  // xAI
+  'grok-4.5': { input: 2.00, output: 6.00, cached: 0.50, longContext: { thresholdTokens: 200000, input: 4.00, output: 12.00, cached: 1.00 } },
 
   // GitHub fine-tuned
   'raptor-mini': { input: 0.25, output: 2.00, cached: 0.025 },
