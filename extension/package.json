@@ -260,7 +260,7 @@
     "vitest": "^4.1.9"
   },
   "dependencies": {
-    "better-sqlite3": "^12.11.1",
+    "better-sqlite3": "^13.0.3",
     "chart.js": "^4.5.1"
   }
 }
