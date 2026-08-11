@@ -6,6 +6,7 @@ import type {
   RangePreset,
   RangeSummary,
 } from './models.js';
+import { sumToolUsage } from './toolUsage.js';
 
 /** Number of days each preset window spans (inclusive of today). */
 export const RANGE_PRESETS: Record<RangePreset, number> = {
@@ -48,6 +49,7 @@ export function periodCostToDailyAggregate(period: PeriodCost, date: string): Da
     cacheWriteTokens,
     byModel,
     byWorkspace: period.byWorkspace,
+    byTool: period.byTool,
     sessionCount: 0,
   };
 }
@@ -131,6 +133,7 @@ export function buildRangeSummary(
     cachedTokens,
     cacheWriteTokens,
     byModel: [...modelMap.values()].sort((a, b) => b.totalCost - a.totalCost),
+    byTool: sumToolUsage(inRange.map(d => d.byTool)),
     daily,
     daysWithData: inRange.length,
   };

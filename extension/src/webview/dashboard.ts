@@ -1,5 +1,6 @@
 import Chart from 'chart.js/auto';
-import type { DashboardData, BudgetState, BudgetThresholds, RangeSummary, RangePreset, RecentPrompt, SpanDetail, ToolCall, SessionInfo, TurnCost } from '../domain/models.js';
+import type { DashboardData, BudgetState, BudgetThresholds, RangeSummary, RangePreset, RecentPrompt, SpanDetail, ToolCall, ToolUsageStat, SessionInfo, TurnCost } from '../domain/models.js';
+import { avgDurationMs, sumToolUsage, totalToolCalls, totalToolCost } from '../domain/toolUsage.js';
 
 /** Minimal shape of the VS Code webview API we use. */
 interface VsCodeApi {
@@ -64,9 +65,13 @@ const MODAL_POLL_MS = 1000;
 let animateNext = true;
 let firstRender = true;
 /** Collapsed state per Activity section id (default: expanded). */
-const collapsed: Record<string, boolean> = {};
+const collapsed: Record<string, boolean> = { tools: true };
 const subagentCollapsed: Record<string, boolean> = {};
 const spanToolsExpanded: Record<string, boolean> = {};
+/** Tool tables showing their full list instead of the top N, keyed by table id. */
+const toolTableExpanded: Record<string, boolean> = {};
+/** Expanded per-prompt tool lists inside the session modal, keyed by traceId. */
+const sessionModalToolsExpanded: Record<string, boolean> = {};
 /** Expanded state per tool-call span id (shows args/result/error). Default collapsed. */
 const toolDetailExpanded: Record<string, boolean> = {};
 /** Collapsed state per prompt/response text panel (keyed by type#traceId). */
@@ -201,6 +206,18 @@ function setupChrome(): void {
       toggleToolDetail(toolRow.dataset.toolSpanId);
       return;
     }
+    // Tool table footer -> show the full tool list / collapse back to the top N.
+    const toolMore = target.closest('.tool-more') as HTMLElement | null;
+    if (toolMore?.dataset.toolkey) {
+      toggleToolTable(toolMore.dataset.toolkey);
+      return;
+    }
+    // Session modal: a prompt's own (collapsed) tool list.
+    const promptTools = target.closest('.session-prompt-tools-head') as HTMLElement | null;
+    if (promptTools?.dataset.prompttools) {
+      togglePromptTools(promptTools.dataset.prompttools);
+      return;
+    }
     // Prompt / Response text panel header -> expand/collapse full text.
     const textHead = target.closest('.text-panel-head') as HTMLElement | null;
     if (textHead?.dataset.textpanel) {
@@ -253,6 +270,9 @@ const GLOSSARY: Record<string, { title: string; text: string }> = {
   costHistory: { title: 'Cost History', text: 'Estimated cost per day across the selected date range.' },
   tokens: { title: 'Tokens', text: 'Token usage split into fresh input, cache read, cache write, and output for the selected range.' },
   costPerPrompt: { title: 'Cost per User Prompt', text: 'Cost broken down by each user message, summing all LLM calls and tool/subagent activity triggered by that prompt. Click a row to see every interaction.' },
+  toolUsage: { title: 'Tool Usage', text: 'How often each tool (file edits, searches, terminal commands, subagents…) was invoked in the selected range, including calls made by subagents. Tools consume no tokens themselves — the cost shows up as the extra model calls they trigger.' },
+  toolErrors: { title: 'Tool Errors', text: 'Calls that ended with an error status. A high error rate usually means wasted model calls, since the agent has to retry.' },
+  toolCost: { title: 'Tool Cost', text: 'Tools are not billed directly. This is the cost of the model call that requested the tool, split evenly when one call requested several tools. Calls that cannot be tied to a model call count as $0.' },
   reqs: { title: 'Reqs', text: 'Number of model (LLM) calls made while handling this prompt.' },
   hitPct: { title: 'Hit %', text: 'Share of input tokens served from cache (Cache Read ÷ total input). Higher is cheaper.' },
 };
@@ -278,6 +298,7 @@ function renderActiveTab(): void {
     case 'activity': renderActivity(panel); break;
     case 'cost': renderCost(panel); break;
     case 'models': renderModels(panel); break;
+    case 'tools': renderTools(panel); break;
     default: renderActivity(panel); break;
   }
 
@@ -357,6 +378,7 @@ function renderActivity(panel: HTMLElement): void {
 
   panel.innerHTML =
     section('tokens', 'Tokens', 'tokens', tokenCards) +
+    section('tools', 'Tool Usage', 'toolUsage', renderToolUsageTable(rangeToolUsage(), 'activity')) +
     section('prompts', 'Cost per User Prompt', 'costPerPrompt', promptsBody);
 
   lastTableSig = tableSig();
@@ -511,7 +533,8 @@ function tableSig(): string {
     const exp = expandedSessions.has(s.sessionId) ? 'E' : 'c';
     const loaded = sessionTurns[s.sessionId];
     const detail = Array.isArray(loaded) ? loaded.map(turnSig).join(',') : String(loaded ?? 'none');
-    return [s.sessionId, exp, s.totalCost, s.modelTurns, s.inputTokens, s.outputTokens, detail].join(':');
+    return [s.sessionId, exp, s.totalCost, s.modelTurns, s.inputTokens, s.outputTokens,
+      totalToolCalls(s.byTool), detail].join(':');
   }).join('|');
 }
 
@@ -584,6 +607,13 @@ function sessionAggregate(g: SessionGroup): { count: number; reqs: number; cost:
   return { count, ...sum };
 }
 
+/** Session tool-call total: exact per-session stats when present, else summed from loaded prompts. */
+function sessionToolCalls(g: SessionGroup): number {
+  const fromInfo = totalToolCalls(g.info?.byTool);
+  if (fromInfo > 0) return fromInfo;
+  return g.items.reduce((n, { turn }) => n + countTurnTools(turn), 0);
+}
+
 /** One prompt sub-row inside an expanded session. */
 function renderPromptRow(t: RecentPrompt, sessionId: string): string {
   const label = t.label ? escapeHtml(t.label) : '<span class="prompts-muted">(no prompt text)</span>';
@@ -592,6 +622,7 @@ function renderPromptRow(t: RecentPrompt, sessionId: string): string {
     '<td class="prompts-label prompt-indent" title="' + (t.label ? escapeHtml(t.label) : '') + '">' + label + '</td>' +
     '<td class="num">' + formatCost(t.totalCost) + '</td>' +
     '<td class="num">' + t.llmCalls + '</td>' +
+    '<td class="num">' + countTurnTools(t) + '</td>' +
     '<td class="num">' + formatTokens(t.inputTokens) + '</td>' +
     '<td class="num">' + formatTokens(t.outputTokens) + '</td>' +
     '<td class="num">' + cacheHitPct(t.inputTokens, t.cachedTokens) + '</td>' +
@@ -616,6 +647,7 @@ function renderSessionGroup(g: SessionGroup): string {
       countLabel + '</td>' +
     '<td class="num">' + formatCost(agg.cost) + '</td>' +
     '<td class="num">' + agg.reqs + '</td>' +
+    '<td class="num">' + sessionToolCalls(g) + '</td>' +
     '<td class="num">' + formatTokens(agg.input) + '</td>' +
     '<td class="num">' + formatTokens(agg.output) + '</td>' +
     '<td class="num">' + cacheHitPct(agg.input, agg.cached) + '</td>' +
@@ -624,9 +656,9 @@ function renderSessionGroup(g: SessionGroup): string {
     if (loaded) {
       html += g.items.length
         ? g.items.map(({ turn }) => renderPromptRow(turn, g.sessionId)).join('')
-        : '<tr class="prompt-subrow"><td class="prompts-session"></td><td class="prompts-label prompt-indent prompts-muted" colspan="6">No prompts recorded.</td></tr>';
+        : '<tr class="prompt-subrow"><td class="prompts-session"></td><td class="prompts-label prompt-indent prompts-muted" colspan="7">No prompts recorded.</td></tr>';
     } else {
-      html += '<tr class="prompt-subrow"><td class="prompts-session"></td><td class="prompts-label prompt-indent prompts-muted" colspan="6">Loading…</td></tr>';
+      html += '<tr class="prompt-subrow"><td class="prompts-session"></td><td class="prompts-label prompt-indent prompts-muted" colspan="7">Loading…</td></tr>';
     }
   }
   return html;
@@ -638,7 +670,9 @@ function renderRecentTurnsBody(): string {
   const rows = sessions.map(info => renderSessionGroup(sessionGroupFor(info))).join('');
   return '<table class="prompts-table">' +
     '<thead><tr><th>Session</th><th>Prompt</th><th class="num">Cost</th>' +
-    '<th class="num">Reqs' + infoBadge('reqs') + '</th><th class="num">In</th><th class="num">Out</th>' +
+    '<th class="num">Reqs' + infoBadge('reqs') + '</th>' +
+    '<th class="num">Tools' + infoBadge('toolUsage') + '</th>' +
+    '<th class="num">In</th><th class="num">Out</th>' +
     '<th class="num">Hit%' + infoBadge('hitPct') + '</th></tr></thead>' +
     '<tbody>' + rows + '</tbody></table>';
 }
@@ -851,6 +885,7 @@ function renderModalBody(turn: RecentPrompt): void {
       formatCost(turn.totalCost) + ' · ' +
       formatTokens(turn.inputTokens) + ' in / ' + formatTokens(turn.outputTokens) + ' out · ' +
       cacheHitPct(turn.inputTokens, turn.cachedTokens) + ' cache hit</div>' +
+    renderToolUsageSection(turn.byTool, 'Tool usage', 'prompt:' + turn.traceId) +
     renderTurnDetailBody(turn);
   body.scrollTop = scroll;
 }
@@ -869,6 +904,7 @@ function renderSessionModalBody(group: SessionGroup): void {
     agg.reqs + ' LLM call(s) · ' + sessionTools + ' tool call(s) · ' + formatCost(agg.cost) + ' · ' +
     formatTokens(agg.input) + ' in / ' + formatTokens(agg.output) + ' out · ' +
     cacheHitPct(agg.input, agg.cached) + ' cache hit</div>' +
+    renderToolUsageSection(sumToolUsage(group.items.map(({ turn }) => turn.byTool)), 'Tool usage', 'session:' + group.sessionId) +
     '<div class="session-prompts">';
   for (const { turn } of group.items) {
     const isCol = sessionModalTurnCollapsed[turn.traceId] !== false; // default collapsed
@@ -882,6 +918,7 @@ function renderSessionModalBody(group: SessionGroup): void {
           formatTokens(turn.inputTokens) + ' in / ' + formatTokens(turn.outputTokens) + ' out · ' +
           cacheHitPct(turn.inputTokens, turn.cachedTokens) + ' hit</span>' +
       '</div>' +
+      renderPromptToolList(turn) +
       '<div class="session-prompt-body' + (isCol ? ' hidden' : '') + '">' +
         (isCol ? '' : renderTurnDetailBody(turn)) +
       '</div>' +
@@ -890,6 +927,25 @@ function renderSessionModalBody(group: SessionGroup): void {
   html += '</div>';
   body.innerHTML = html;
   body.scrollTop = scroll;
+}
+
+/** A prompt's own tool breakdown inside the session modal; collapsed by default. */
+function renderPromptToolList(turn: RecentPrompt): string {
+  if (!turn.byTool || turn.byTool.length === 0) return '';
+  const open = !!sessionModalToolsExpanded[turn.traceId];
+  return '<div class="session-prompt-tools">' +
+    '<div class="session-prompt-tools-head" data-prompttools="' + escapeHtml(turn.traceId) + '">' +
+      '<span class="section-chevron">' + (open ? '▾' : '▸') + '</span>' +
+      '<span>Tool calls (' + totalToolCalls(turn.byTool) + ' · ' + formatCost(totalToolCost(turn.byTool)) + ')</span>' +
+    '</div>' +
+    (open ? renderToolUsageTable(turn.byTool, 'sessionprompt:' + turn.traceId) : '') +
+  '</div>';
+}
+
+/** Toggle a prompt's tool list inside the session modal. */
+function togglePromptTools(traceId: string): void {
+  sessionModalToolsExpanded[traceId] = !sessionModalToolsExpanded[traceId];
+  renderOpenModal();
 }
 
 /** Toggle a subagent node, re-rendering the open modal so totals stay visible. */
@@ -1011,6 +1067,110 @@ function renderModels(panel: HTMLElement): void {
   drawModelDoughnut('c-models', source);
 }
 
+// --- Tool usage ---
+/** Tools shown before the "show more" expander kicks in. */
+const TOOL_TABLE_LIMIT = 6;
+
+/**
+ * Tool distribution for the selected range. Falls back to the live week when the
+ * range summary carries no tool data (history written before tool tracking).
+ */
+function rangeToolUsage(): ToolUsageStat[] {
+  const fromRange = rangeSummary?.byTool ?? [];
+  if (fromRange.length > 0) return fromRange;
+  return data?.thisWeek.byTool ?? [];
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return Math.round(ms) + 'ms';
+  if (ms < 60_000) return (ms / 1000).toFixed(1) + 's';
+  return Math.round(ms / 60_000) + 'm';
+}
+
+function toolShare(stat: ToolUsageStat, total: number): number {
+  return total > 0 ? (100 * stat.calls) / total : 0;
+}
+
+const NO_TOOL_DATA = '<div class="prompts-msg">No tool calls recorded in this range. ' +
+  'Tool tracking requires agent-traces.db.</div>';
+
+/**
+ * Per-tool table with share, cost, error rate and timing. When `key` is given the
+ * list is capped at {@link TOOL_TABLE_LIMIT} with an expander; pass null to always
+ * show every tool.
+ */
+function renderToolUsageTable(stats: ToolUsageStat[], key: string | null): string {
+  if (stats.length === 0) return NO_TOOL_DATA;
+  const total = totalToolCalls(stats);
+  const expanded = key ? !!toolTableExpanded[key] : true;
+  const shown = expanded ? stats : stats.slice(0, TOOL_TABLE_LIMIT);
+  const rows = shown.map((s, i) => {
+    const errPct = s.calls > 0 ? Math.round((100 * s.errors) / s.calls) : 0;
+    return '<tr>' +
+      '<td><span class="dot" style="background:' + PALETTE[i % PALETTE.length] + '"></span> ' +
+        escapeHtml(s.toolName) + '</td>' +
+      '<td class="num">' + s.calls + '</td>' +
+      '<td class="num">' + toolShare(s, total).toFixed(0) + '%</td>' +
+      '<td class="num">' + formatCost(s.totalCost) + '</td>' +
+      '<td class="num' + (s.errors > 0 ? ' tool-err' : '') + '">' + s.errors + '</td>' +
+      '<td class="num">' + errPct + '%</td>' +
+      '<td class="num">' + formatDuration(s.totalDurationMs) + '</td>' +
+      '<td class="num">' + formatDuration(avgDurationMs(s)) + '</td>' +
+      '</tr>';
+  }).join('');
+  const hidden = stats.length - shown.length;
+  let footer = '';
+  if (key && (hidden > 0 || expanded)) {
+    const label = expanded ? '▾ Show fewer' : '▸ Show ' + hidden + ' more';
+    footer = '<tr class="tool-more clickable" data-toolkey="' + escapeHtml(key) + '">' +
+      '<td colspan="8" class="tool-more-cell">' + label + '</td></tr>';
+  }
+  return '<table class="detail-table">' +
+    '<thead><tr><th>Tool</th><th class="num">Calls</th><th class="num">Share</th>' +
+    '<th class="num">Cost' + infoBadge('toolCost') + '</th>' +
+    '<th class="num">Errors' + infoBadge('toolErrors') + '</th><th class="num">Err%</th>' +
+    '<th class="num" title="Total wall-clock time spent in this tool">Total</th>' +
+    '<th class="num" title="Average duration per call">Avg</th></tr></thead>' +
+    '<tbody>' + rows + footer + '</tbody></table>';
+}
+
+function renderTools(panel: HTMLElement): void {
+  const stats = rangeToolUsage();
+  if (stats.length === 0) {
+    destroyAllCharts();
+    panel.innerHTML = '<div class="empty">No tool calls recorded in this range.</div>';
+    return;
+  }
+  const total = totalToolCalls(stats);
+  const errors = stats.reduce((n, s) => n + s.errors, 0);
+  const duration = stats.reduce((n, s) => n + s.totalDurationMs, 0);
+  panel.innerHTML =
+    '<div class="cards">' +
+      statCard('Tool Calls', String(total), RANGE_LABELS[selectedRange], 'toolUsage') +
+      statCard('Distinct Tools', String(stats.length)) +
+      statCard('Attributed Cost', formatCost(totalToolCost(stats)), 'of model calls', 'toolCost') +
+      statCard('Errors', String(errors), total > 0 ? Math.round((100 * errors) / total) + '% of calls' : '', 'toolErrors') +
+      statCard('Time in Tools', formatDuration(duration)) +
+    '</div>' +
+    '<div class="chart-wrap small"><canvas id="c-tools"></canvas></div>' +
+    renderToolUsageTable(stats, null);
+  drawToolDoughnut('c-tools', stats);
+}
+
+/** Tool distribution block for a detail modal; empty string when there are none. */
+function renderToolUsageSection(stats: ToolUsageStat[] | undefined, title: string, key: string): string {
+  if (!stats || stats.length === 0) return '';
+  return '<div class="detail-section-title">' + title + infoBadge('toolUsage') + '</div>' +
+    renderToolUsageTable(stats, key);
+}
+
+/** Toggle a capped tool table between its top-N view and the full list. */
+function toggleToolTable(key: string): void {
+  toolTableExpanded[key] = !toolTableExpanded[key];
+  if (key.startsWith('activity')) renderActiveTab();
+  else renderOpenModal();
+}
+
 // --- Charts ---
 function destroyChart(id: string): void {
   if (charts[id]) { charts[id].destroy(); delete charts[id]; }
@@ -1058,6 +1218,29 @@ function drawModelDoughnut(canvasId: string, models: { model: string; totalCost:
       datasets: [{
         data: models.map(m => m.totalCost),
         backgroundColor: models.map((_, i) => PALETTE[i % PALETTE.length]),
+        borderWidth: 0,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: animateNext ? undefined : false,
+      plugins: { legend: { display: false } },
+    },
+  });
+}
+
+function drawToolDoughnut(canvasId: string, stats: ToolUsageStat[]): void {
+  destroyChart(canvasId);
+  const ctx = document.getElementById(canvasId) as HTMLCanvasElement | null;
+  if (!ctx) return;
+  charts[canvasId] = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: stats.map(s => s.toolName),
+      datasets: [{
+        data: stats.map(s => s.calls),
+        backgroundColor: stats.map((_, i) => PALETTE[i % PALETTE.length]),
         borderWidth: 0,
       }],
     },

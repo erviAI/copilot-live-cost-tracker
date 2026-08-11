@@ -47,6 +47,30 @@ describe('rangeSummary', () => {
       expect(result.modelTurns).toBe(6);
     });
 
+    it('sums tool usage across in-window days and ignores days without it', () => {
+      const history = [
+        makeDaily('2026-06-20', { byTool: [{ toolName: 'read_file', calls: 3, errors: 0, totalDurationMs: 30, totalCost: 0.3 }] }),
+        makeDaily('2026-06-21', {
+          byTool: [
+            { toolName: 'read_file', calls: 1, errors: 1, totalDurationMs: 5, totalCost: 0.1 },
+            { toolName: 'grep', calls: 4, errors: 0, totalDurationMs: 8, totalCost: 0.2 },
+          ],
+        }),
+        // Written before tool tracking existed — must not break the sum.
+        makeDaily('2026-06-19'),
+        // Outside the window.
+        makeDaily('2026-06-01', { byTool: [{ toolName: 'read_file', calls: 99, errors: 0, totalDurationMs: 0, totalCost: 9 }] }),
+      ];
+
+      const result = buildRangeSummary('7d', history, null, now);
+
+      // Equal call counts tie-break alphabetically.
+      expect(result.byTool.map(t => t.toolName)).toEqual(['grep', 'read_file']);
+      expect(result.byTool.find(t => t.toolName === 'read_file')).toMatchObject({ calls: 4, errors: 1, totalDurationMs: 35 });
+      expect(result.byTool.find(t => t.toolName === 'read_file')?.totalCost).toBeCloseTo(0.4);
+      expect(result.byTool.find(t => t.toolName === 'grep')?.totalCost).toBeCloseTo(0.2);
+    });
+
     it('lets today override a stale same-day history entry', () => {
       const history = [makeDaily('2026-06-22', { totalCost: 5, modelTurns: 10 })];
       const today = makeDaily('2026-06-22', { totalCost: 8, modelTurns: 16 });

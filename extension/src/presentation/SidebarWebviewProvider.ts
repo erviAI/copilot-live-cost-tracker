@@ -745,6 +745,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
 
     let expandedSessionId = null;
     const turnsExpandedSessions = {};
+    const toolsExpandedSessions = {};
     const detailsOpenState = {}; // tracks open/closed state of <details> subsections by id
 
     function render(data, budgetState) {
@@ -1049,6 +1050,27 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
         return;
       }
 
+      // By-tool section title expand/collapse
+      var toolsTitle = e.target.closest('.tools-section-title');
+      if (toolsTitle) {
+        var toolsWrapperId = toolsTitle.getAttribute('data-wrapper');
+        var toolsWrapper = toolsWrapperId && document.getElementById(toolsWrapperId);
+        var toolsChevron = toolsTitle.querySelector('.section-chevron');
+        if (toolsWrapper) {
+          var toolsHidden = toolsWrapper.classList.contains('hidden');
+          if (toolsHidden) {
+            toolsWrapper.classList.remove('hidden');
+            if (toolsChevron) toolsChevron.classList.add('open');
+            if (expandedSessionId) toolsExpandedSessions[expandedSessionId] = true;
+          } else {
+            toolsWrapper.classList.add('hidden');
+            if (toolsChevron) toolsChevron.classList.remove('open');
+            if (expandedSessionId) delete toolsExpandedSessions[expandedSessionId];
+          }
+        }
+        return;
+      }
+
       // Prompt row → open the full session detail modal in the dashboard panel.
       var promptRow = e.target.closest('.prompt-open');
       if (promptRow && promptRow.dataset.sessionId) {
@@ -1122,13 +1144,34 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
       });
       html += '</table></div>';
 
+      // Tool-call distribution for the whole session
+      if (data.byTool && data.byTool.length > 0) {
+        var toolsWrapperId = 'tools-wrap-' + sessionId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
+        var toolsOpen = !!toolsExpandedSessions[sessionId];
+        var toolTotal = data.byTool.reduce(function(n, t) { return n + t.calls; }, 0);
+        html += '<div class="detail-section"><div class="detail-section-title tools-section-title" data-wrapper="' + toolsWrapperId + '"><span class="section-chevron' + (toolsOpen ? ' open' : '') + '">&#9654;</span> By Tool (' + toolTotal + ' calls)</div>';
+        html += '<div id="' + toolsWrapperId + '" class="' + (toolsOpen ? '' : 'hidden') + '"><table class="detail-table">';
+        html += '<tr><th>Tool</th><th class="num">Calls</th><th class="num">Share</th><th class="num">Cost</th><th class="num">Err</th><th class="num">Avg</th></tr>';
+        data.byTool.forEach(function(t) {
+          var share = toolTotal > 0 ? Math.round(100 * t.calls / toolTotal) : 0;
+          var avg = t.calls > 0 ? Math.round(t.totalDurationMs / t.calls) : 0;
+          html += '<tr><td title="' + escapeHtml(t.toolName) + '">' + escapeHtml(t.toolName) + '</td>' +
+            '<td class="num">' + t.calls + '</td>' +
+            '<td class="num">' + share + '%</td>' +
+            '<td class="num" title="Cost of the model call that requested this tool, split across the tools it invoked">' + formatCost(t.totalCost || 0) + '</td>' +
+            '<td class="num">' + t.errors + '</td>' +
+            '<td class="num">' + formatDuration(avg) + '</td></tr>';
+        });
+        html += '</table></div></div>';
+      }
+
       // Per-turn breakdown with expandable spans
       if (data.turns && data.turns.length > 0) {
         var turnsWrapperId = 'turns-wrap-' + sessionId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
         var turnsOpen = !!turnsExpandedSessions[sessionId];
         html += '<div class="detail-section"><div class="detail-section-title turns-section-title" data-wrapper="' + turnsWrapperId + '"><span class="section-chevron' + (turnsOpen ? ' open' : '') + '">&#9654;</span> Cost per User Prompt (' + data.turns.length + ' prompts)</div>';
         html += '<div id="' + turnsWrapperId + '" class="' + (turnsOpen ? '' : 'hidden') + '"><table class="detail-table">';
-        html += '<tr><th>Trace</th><th class="num">Requests</th><th class="num">Cost</th><th class="num">In</th><th class="num">Out</th><th class="num">Cache R</th><th class="num">Cache W</th><th class="num">Hit%</th></tr>';
+        html += '<tr><th>Trace</th><th class="num">Requests</th><th class="num">Tools</th><th class="num">Cost</th><th class="num">In</th><th class="num">Out</th><th class="num">Cache R</th><th class="num">Cache W</th><th class="num">Hit%</th></tr>';
         data.turns.forEach(function(t, idx) {
           var traceLabel = t.traceId ? t.traceId.slice(0, 8) : ('T' + t.turnIndex);
           var timeLabel = t.startTimeMs ? formatClock(t.startTimeMs) : '';
@@ -1144,13 +1187,15 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
             'Duration: ' + formatDuration(t.durationMs),
             'Tokens: ' + formatTokens(totalTokens) + ' (in ' + formatTokens(t.inputTokens) + ' / out ' + formatTokens(t.outputTokens) + ' / cache ' + formatTokens(t.cachedTokens) + ')',
             'Cost: ' + formatCost(t.totalCost),
-            'Requests: ' + t.llmCalls
+            'Requests: ' + t.llmCalls,
+            'Tool calls: ' + (t.toolCallCount || 0) + (t.byTool && t.byTool.length ? ' (' + t.byTool.map(function(x) { return x.toolName + ' x' + x.calls; }).join(', ') + ')' : '')
           ].filter(Boolean);
           var tipHtml = tipLines.map(function(l) { return '<div>' + escapeHtml(l) + '</div>'; }).join('');
           html += '<tr class="turn-row prompt-open has-tip" data-session-id="' + escapeHtml(sessionId) + '" data-trace-id="' + escapeHtml(t.traceId || '') + '" title="Open full detail in dashboard">' +
             '<td>' + (timeLabel ? '<span class="turn-time">[' + timeLabel + ']</span> ' : '') + (turnLabel ? '<span class="turn-label">' + turnLabel + '</span>' : (agentLabel ? '<span class="turn-agent">' + agentLabel + '</span> ' : '') + '<span class="turn-trace">' + traceLabel + '</span>') +
             '<span class="tip">' + tipHtml + '</span></td>' +
             '<td class="num">' + t.llmCalls + '</td>' +
+            '<td class="num">' + (t.toolCallCount || 0) + '</td>' +
             '<td class="num">' + formatCost(t.totalCost) + '</td>' +
             '<td class="num">' + formatTokens(t.inputTokens) + '</td>' +
             '<td class="num">' + formatTokens(t.outputTokens) + '</td>' +

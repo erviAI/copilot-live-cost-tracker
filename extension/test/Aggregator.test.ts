@@ -533,5 +533,82 @@ describe('Aggregator', () => {
       expect(tc?.statusMessage).toBe('file not found');
     });
   });
+
+  describe('tool usage distribution', () => {
+    it('summarises tool calls per turn and per session, counting bound and unbound calls', () => {
+      const t0 = 5_000_000;
+      const chat = makeSpan({ spanId: 'chat-1', traceId: 'tr', parentSpanId: 'agent-1', startTimeMs: t0 + 1000, endTimeMs: t0 + 1100 });
+      const bound = makeSpan({ spanId: 'tool-1', traceId: 'tr', parentSpanId: 'agent-1', operationName: 'execute_tool', toolName: 'read_file', startTimeMs: t0 + 1200, endTimeMs: t0 + 1250 });
+      const boundAgain = makeSpan({ spanId: 'tool-2', traceId: 'tr', parentSpanId: 'agent-1', operationName: 'execute_tool', toolName: 'read_file', startTimeMs: t0 + 1300, endTimeMs: t0 + 1310, statusCode: 2 });
+      // Starts before the model call → stays unbound, but must still be counted.
+      const unbound = makeSpan({ spanId: 'tool-3', traceId: 'tr', parentSpanId: 'agent-1', operationName: 'execute_tool', toolName: 'grep_search', startTimeMs: t0, endTimeMs: t0 + 20 });
+
+      const detail = aggregator.aggregateSessionDetail('tr', [chat], undefined, [bound, boundAgain, unbound]);
+      const turn = detail.turns[0];
+
+      expect(turn.toolCallCount).toBe(3);
+      expect(turn.byTool?.map(t => ({ toolName: t.toolName, calls: t.calls, errors: t.errors, totalDurationMs: t.totalDurationMs }))).toEqual([
+        { toolName: 'read_file', calls: 2, errors: 1, totalDurationMs: 60 },
+        { toolName: 'grep_search', calls: 1, errors: 0, totalDurationMs: 20 },
+      ]);
+      expect(detail.byTool).toEqual(turn.byTool);
+    });
+
+    it('splits a model call cost across the tools it requested and gives unbound tools none', () => {
+      const t0 = 6_000_000;
+      const chat = makeSpan({ spanId: 'chat-1', traceId: 'tr', parentSpanId: 'agent-1', startTimeMs: t0, endTimeMs: t0 + 100 });
+      const tool1 = makeSpan({ spanId: 'tool-1', traceId: 'tr', parentSpanId: 'agent-1', operationName: 'execute_tool', toolName: 'read_file', startTimeMs: t0 + 200, endTimeMs: t0 + 210 });
+      const tool2 = makeSpan({ spanId: 'tool-2', traceId: 'tr', parentSpanId: 'agent-1', operationName: 'execute_tool', toolName: 'grep_search', startTimeMs: t0 + 300, endTimeMs: t0 + 310 });
+      const orphan = makeSpan({ spanId: 'tool-3', traceId: 'tr', parentSpanId: 'agent-9', operationName: 'execute_tool', toolName: 'edit', startTimeMs: t0 + 400, endTimeMs: t0 + 410 });
+
+      const detail = aggregator.aggregateSessionDetail('tr', [chat], undefined, [tool1, tool2, orphan]);
+      const turn = detail.turns[0];
+      const callCost = turn.spans[0].totalCost;
+
+      expect(callCost).toBeGreaterThan(0);
+      const byName = new Map(turn.byTool!.map(t => [t.toolName, t.totalCost]));
+      expect(byName.get('read_file')).toBeCloseTo(callCost / 2);
+      expect(byName.get('grep_search')).toBeCloseTo(callCost / 2);
+      expect(byName.get('edit')).toBe(0);
+      // The whole model call cost is distributed, never duplicated.
+      expect(turn.byTool!.reduce((n, t) => n + t.totalCost, 0)).toBeCloseTo(callCost);
+    });
+
+    it('omits tool data when no tool spans are provided', () => {
+      const chat = makeSpan({ spanId: 'chat-1', traceId: 'tr' });
+      const detail = aggregator.aggregateSessionDetail('tr', [chat]);
+
+      expect(detail.turns[0].toolCallCount).toBe(0);
+      expect(detail.turns[0].byTool).toBeUndefined();
+      expect(detail.byTool).toEqual([]);
+    });
+
+    it('attributes subagent tool calls to the parent session in buildDashboard', () => {
+      const now = Date.now();
+      const span = makeSpan({ spanId: 'chat-1', traceId: 'tr', parentSpanId: 'agent-1', chatSessionId: 'session-1', startTimeMs: now - 1000, endTimeMs: now - 900 });
+      const toolSpans = [
+        { spanId: 'tool-1', traceId: 'tr', parentSpanId: 'agent-1', toolName: 'read_file', chatSessionId: 'session-1', conversationId: 'session-1', statusCode: 1, startTimeMs: now - 800, endTimeMs: now - 780 },
+        // Subagent tool call: session id is a tool-call id, resolved via trace id.
+        { spanId: 'tool-2', traceId: 'tr', parentSpanId: 'agent-1', toolName: 'grep_search', chatSessionId: 'toolu_abc', conversationId: 'toolu_abc', statusCode: 2, startTimeMs: now - 700, endTimeMs: now - 695 },
+      ];
+
+      const dashboard = aggregator.buildDashboard([span], new Map(), 'session-1', undefined, toolSpans);
+
+      expect(dashboard.today.byTool?.map(t => t.toolName)).toEqual(['grep_search', 'read_file']);
+      expect(dashboard.today.byTool?.find(t => t.toolName === 'grep_search')?.errors).toBe(1);
+      expect(dashboard.currentSession.byTool).toEqual(dashboard.today.byTool);
+      expect(dashboard.recentSessions[0].byTool).toEqual(dashboard.today.byTool);
+      // Both tools were requested by the single model call, so they split its cost.
+      const total = dashboard.today.byTool!.reduce((n, t) => n + t.totalCost, 0);
+      expect(total).toBeCloseTo(dashboard.today.totalCost);
+    });
+
+    it('leaves byTool undefined when no tool spans are supplied', () => {
+      const dashboard = aggregator.buildDashboard([makeSpan()], new Map(), 'session-1');
+
+      expect(dashboard.today.byTool).toBeUndefined();
+      expect(dashboard.recentSessions[0].byTool).toBeUndefined();
+    });
+  });
 });
 
