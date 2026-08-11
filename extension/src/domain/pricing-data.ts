@@ -15,9 +15,9 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'gpt-5.4-mini': { input: 0.75, output: 4.50, cached: 0.075 },
   'gpt-5.4-nano': { input: 0.20, output: 1.25, cached: 0.02 },
   'gpt-5.5': { input: 5.00, output: 30.00, cached: 0.50, longContext: { thresholdTokens: 272000, input: 10.00, output: 45.00, cached: 1.00 } },
-  'gpt-5.6-luna': { input: 0.20, output: 1.20, cached: 0.02, longContext: { thresholdTokens: 200000, input: 0.40, output: 1.80, cached: 0.04 } },
-  'gpt-5.6-sol': { input: 5.00, output: 30.00, cached: 0.50, longContext: { thresholdTokens: 272000, input: 10.00, output: 45.00, cached: 1.00 } },
-  'gpt-5.6-terra': { input: 2.00, output: 12.00, cached: 0.20, longContext: { thresholdTokens: 272000, input: 4.00, output: 18.00, cached: 0.40 } },
+  'gpt-5.6-luna': { input: 0.20, output: 1.20, cached: 0.02, cacheWrite: 0.25, longContext: { thresholdTokens: 200000, input: 0.40, output: 1.80, cached: 0.04, cacheWrite: 0.50 } },
+  'gpt-5.6-sol': { input: 5.00, output: 30.00, cached: 0.50, cacheWrite: 6.25, longContext: { thresholdTokens: 272000, input: 10.00, output: 45.00, cached: 1.00, cacheWrite: 12.50 } },
+  'gpt-5.6-terra': { input: 2.00, output: 12.00, cached: 0.20, cacheWrite: 2.50, longContext: { thresholdTokens: 272000, input: 4.00, output: 18.00, cached: 0.40, cacheWrite: 5.00 } },
 
   // Anthropic (includes cache write cost)
   'claude-haiku-4-5': { input: 1.00, output: 5.00, cached: 0.10, cacheWrite: 1.25 },
@@ -34,8 +34,6 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'claude-fable-5': { input: 10.00, output: 50.00, cached: 1.00, cacheWrite: 12.50 },
 
   // Google
-  'gemini-2.5-pro': { input: 1.25, output: 10.00, cached: 0.125 },
-  'gemini-3-flash': { input: 0.50, output: 3.00, cached: 0.05 },
   'gemini-3.1-pro': { input: 2.00, output: 12.00, cached: 0.20, longContext: { thresholdTokens: 200000, input: 4.00, output: 18.00, cached: 0.40 } },
   'gemini-3.5-flash': { input: 1.50, output: 9.00, cached: 0.15 },
   'gemini-3.6-flash': { input: 1.50, output: 7.50, cached: 0.15 },
@@ -51,6 +49,7 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
 
   // moonshot_ai
   'kimi-k2.7-code': { input: 0.95, output: 4.00, cached: 0.19 },
+  'kimi-k3': { input: 3.00, output: 15.00, cached: 0.30 },
 
   // Additional models not in the official pricing table (see extra-models.json)
   'gpt-4o-mini': { input: 0.15, output: 0.60, cached: 0.075 },
@@ -64,4 +63,6 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'gpt-4.1': { input: 2.00, output: 8.00, cached: 0.50 },
   'gpt-5.2': { input: 1.75, output: 14.00, cached: 0.175 },
   'gpt-5.2-codex': { input: 1.75, output: 14.00, cached: 0.175 },
+  'gemini-2.5-pro': { input: 1.25, output: 10.00, cached: 0.125 },
+  'gemini-3-flash': { input: 0.50, output: 3.00, cached: 0.05 },
 };
