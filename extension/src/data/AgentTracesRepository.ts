@@ -1,6 +1,6 @@
 import * as path from 'path';
 import type { ISpanRepository, ITurnLabelProvider, IToolCallProvider } from './interfaces.js';
-import type { Span } from '../domain/models.js';
+import type { Span, ToolCallSpan } from '../domain/models.js';
 import { openDatabase, type Database } from './sqlite.js';
 
 const AGENT_TRACES_RELATIVE = 'globalStorage/github.copilot-chat/agent-traces.db';
@@ -162,6 +162,35 @@ export class AgentTracesRepository implements ISpanRepository, ITurnLabelProvide
   }
 
   /**
+   * Get every tool call since a timestamp, with just enough columns to bind each
+   * one back to the model call that requested it (for cost attribution).
+   */
+  async getToolCallsSince(timestampMs: number): Promise<ToolCallSpan[]> {
+    const db = await this.getDb();
+    const sql = `
+      SELECT
+        s.span_id AS spanId,
+        s.trace_id AS traceId,
+        s.parent_span_id AS parentSpanId,
+        s.tool_name AS toolName,
+        s.chat_session_id AS chatSessionId,
+        s.conversation_id AS conversationId,
+        s.status_code AS statusCode,
+        s.start_time_ms AS startTimeMs,
+        s.end_time_ms AS endTimeMs
+      FROM spans s
+      WHERE s.operation_name = 'execute_tool'
+        AND s.tool_name IS NOT NULL
+        AND s.start_time_ms >= ?
+      ORDER BY s.start_time_ms ASC
+    `;
+    // Wide lower bound so microsecond-based DBs still match; normalized below.
+    const rawBound = Math.min(timestampMs, Math.floor(timestampMs / 1000));
+    const rows = await db.all<ToolCallSpan>(sql, [rawBound]);
+    return rows.map(normalizeToolSpan).filter(t => t.startTimeMs >= timestampMs);
+  }
+
+  /**
    * Get user prompt labels for turns in a session.
    * Extracts the text from `copilot_chat.user_request` attribute on spans containing user prompts.
    * Returns a map of traceId → user prompt (first 50 chars).
@@ -290,6 +319,19 @@ export class AgentTracesRepository implements ISpanRepository, ITurnLabelProvide
 function normalizeTimestamps(span: Span): Span {
   const nowMs = Date.now();
   const threshold = nowMs * 100;
+  if (span.startTimeMs > threshold || span.endTimeMs > threshold) {
+    return {
+      ...span,
+      startTimeMs: Math.floor(span.startTimeMs / 1000),
+      endTimeMs: Math.floor(span.endTimeMs / 1000),
+    };
+  }
+  return span;
+}
+
+/** Same microsecond normalization as {@link normalizeTimestamps}, for tool spans. */
+function normalizeToolSpan(span: ToolCallSpan): ToolCallSpan {
+  const threshold = Date.now() * 100;
   if (span.startTimeMs > threshold || span.endTimeMs > threshold) {
     return {
       ...span,

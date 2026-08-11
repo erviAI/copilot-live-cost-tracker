@@ -1,7 +1,8 @@
-import type { Span, ModelCost, PeriodCost, DailyBucket, SessionInfo, DashboardData, SessionDetailData, TurnCost, ModelDetailBreakdown, SpanDetail, WorkspaceCost, ToolCall, TurnText } from './models.js';
+import type { Span, ModelCost, PeriodCost, DailyBucket, SessionInfo, DashboardData, SessionDetailData, TurnCost, ModelDetailBreakdown, SpanDetail, WorkspaceCost, ToolCall, TurnText, ToolCallSpan, ToolUsageStat } from './models.js';
 import { CostCalculator } from './CostCalculator.js';
 import { isIgnoredAgent } from './filters.js';
 import { isSubagentSessionId } from './sessionIds.js';
+import { attributeToolCosts, bindToolsToModelCalls, groupToolSpansBySession, toolUsageFromCalls, toolUsageFromSpans } from './toolUsage.js';
 
 /**
  * Aggregator groups spans into time-bucketed and model-bucketed cost summaries.
@@ -17,7 +18,8 @@ export class Aggregator {
     allSpans: Span[],
     sessionTitles: Map<string, string>,
     currentSessionId: string | null,
-    sessionWorkspaces?: Map<string, string | null>
+    sessionWorkspaces?: Map<string, string | null>,
+    toolSpans?: ToolCallSpan[]
   ): DashboardData {
     const now = new Date();
     const todayStart = startOfDay(now).getTime();
@@ -62,11 +64,29 @@ export class Aggregator {
       }
     }
 
+    const toolCosts = toolSpans ? this.attributeToolCosts(allSpans, toolSpans) : null;
+    const toolSpansBySession = toolSpans
+      ? groupToolSpansBySession(toolSpans, buildTraceToSessionMap(allSpans))
+      : null;
+    const toolUsageSince = (fromMs: number): ToolUsageStat[] | undefined =>
+      toolSpans && toolCosts
+        ? toolUsageFromSpans(toolSpans.filter(t => t.startTimeMs >= fromMs), toolCosts)
+        : undefined;
+
     return {
-      today: this.aggregatePeriod(todaySpans, sessionWorkspaces),
-      thisWeek: this.aggregatePeriod(weekSpans, sessionWorkspaces),
+      today: {
+        ...this.aggregatePeriod(todaySpans, sessionWorkspaces),
+        byTool: toolUsageSince(todayStart),
+      },
+      thisWeek: {
+        ...this.aggregatePeriod(weekSpans, sessionWorkspaces),
+        byTool: toolUsageSince(weekStart),
+      },
       currentSession: {
         ...this.aggregatePeriod(sessionSpans),
+        byTool: toolSpansBySession && toolCosts && currentSessionId
+          ? toolUsageFromSpans(toolSpansBySession.get(currentSessionId) ?? [], toolCosts)
+          : undefined,
         sessionId: currentSessionId,
         title: currentSessionId ? (sessionTitles.get(currentSessionId) ?? null) : null,
         agentName,
@@ -76,9 +96,23 @@ export class Aggregator {
         contextWeightTokens: computeContextWeight(sessionSpans),
       },
       last7Days: this.buildDailyBuckets(allSpans, now),
-      recentSessions: this.buildRecentSessions(allSpans, sessionTitles, sessionWorkspaces),
+      recentSessions: this.buildRecentSessions(allSpans, sessionTitles, sessionWorkspaces, 20, toolSpansBySession, toolCosts),
       updatedAt: now.toISOString(),
     };
+  }
+
+  /**
+   * Attribute model-call cost to the tools each call requested, splitting evenly
+   * when one call requested several. Returns tool span id → cost.
+   */
+  private attributeToolCosts(chatSpans: Span[], toolSpans: ToolCallSpan[]): Map<string, number> {
+    return attributeToolCosts(chatSpans, toolSpans, span => {
+      const model = span.responseModel ?? span.requestModel ?? 'unknown';
+      const cost = this.calculator.calculate(
+        model, span.inputTokens, span.outputTokens, span.cachedTokens, span.cacheWriteTokens, span.maxPromptTokens
+      );
+      return cost?.totalCost ?? 0;
+    });
   }
 
   /**
@@ -234,15 +268,31 @@ export class Aggregator {
    * Build session summaries from spans (uncapped). Used by the history layer to
    * persist every session in the window, not just the most recent ones.
    */
-  buildSessions(spans: Span[], titles: Map<string, string>, workspaces?: Map<string, string | null>): SessionInfo[] {
-    return this.buildRecentSessions(spans, titles, workspaces, Infinity);
+  buildSessions(
+    spans: Span[],
+    titles: Map<string, string>,
+    workspaces?: Map<string, string | null>,
+    toolSpans?: ToolCallSpan[]
+  ): SessionInfo[] {
+    const bySession = toolSpans
+      ? groupToolSpansBySession(toolSpans, buildTraceToSessionMap(spans))
+      : null;
+    const costs = toolSpans ? this.attributeToolCosts(spans, toolSpans) : null;
+    return this.buildRecentSessions(spans, titles, workspaces, Infinity, bySession, costs);
   }
 
   /**
    * Build recent session summaries from spans.
    * @param limit Maximum number of (most recent) sessions to return.
    */
-  private buildRecentSessions(spans: Span[], titles: Map<string, string>, workspaces?: Map<string, string | null>, limit = 20): SessionInfo[] {
+  private buildRecentSessions(
+    spans: Span[],
+    titles: Map<string, string>,
+    workspaces?: Map<string, string | null>,
+    limit = 20,
+    toolSpansBySession?: Map<string, ToolCallSpan[]> | null,
+    toolCosts?: Map<string, number> | null
+  ): SessionInfo[] {
     // Only include spans that belong to a real chat session (have chat_session_id).
     // Spans with only conversation_id are background/inline completions, not user sessions.
     // Also exclude spans from ignored utility agents (e.g. copilotLanguageModelWrapper).
@@ -285,6 +335,9 @@ export class Aggregator {
         cachedTokens: period.cachedTokens,
         cacheWriteTokens: period.byModel.reduce((sum, m) => sum + m.cacheWriteTokens, 0),
         byModel: period.byModel,
+        byTool: toolSpansBySession && toolCosts
+          ? toolUsageFromSpans(toolSpansBySession.get(sessionId) ?? [], toolCosts)
+          : undefined,
       });
     }
 
@@ -306,29 +359,17 @@ export class Aggregator {
     toolCalls: ToolCall[],
     detailById: Map<string, SpanDetail>
   ): ToolCall[] {
-    const byParent = new Map<string, Span[]>();
-    for (const s of chatSpans) {
-      const k = s.parentSpanId ?? '';
-      const arr = byParent.get(k) ?? [];
-      arr.push(s);
-      byParent.set(k, arr);
-    }
-    for (const arr of byParent.values()) arr.sort((a, b) => a.startTimeMs - b.startTimeMs);
-
-    const unbound: ToolCall[] = [];
-    for (const tool of toolCalls) {
-      const candidates = byParent.get(tool.parentSpanId ?? '') ?? [];
-      let chosen: Span | null = null;
-      for (const c of candidates) {
-        if (c.startTimeMs <= tool.startTimeMs) chosen = c;
-        else break;
+    const { bound, unbound } = bindToolsToModelCalls(chatSpans, toolCalls);
+    for (const [spanId, tools] of bound) {
+      const detail = detailById.get(spanId);
+      if (!detail) {
+        unbound.push(...tools);
+        continue;
       }
-      const detail = chosen ? detailById.get(chosen.spanId) : undefined;
-      if (detail) {
-        (detail.toolCalls ??= []).push(tool);
-      } else {
-        unbound.push(tool);
-      }
+      // One model call can request several tools; split its cost evenly across them.
+      const share = detail.totalCost / tools.length;
+      for (const tool of tools) tool.cost = share;
+      (detail.toolCalls ??= []).push(...tools);
     }
     for (const d of detailById.values()) d.toolCalls?.sort((a, b) => a.startTimeMs - b.startTimeMs);
     return unbound;
@@ -466,9 +507,8 @@ export class Aggregator {
       const detailById = new Map<string, SpanDetail>();
       for (const d of spanDetails) detailById.set(d.spanId, d);
       for (const d of allSubDetails) detailById.set(d.spanId, d);
-      const unboundTools = this.bindToolCallsToSpans(
-        turnSpans, toolCallsByTrace.get(traceId) ?? [], detailById
-      );
+      const turnToolCalls = toolCallsByTrace.get(traceId) ?? [];
+      const unboundTools = this.bindToolCallsToSpans(turnSpans, turnToolCalls, detailById);
 
       turns.push({
         turnIndex,
@@ -487,6 +527,8 @@ export class Aggregator {
         spans: spanDetails,
         children: children.length > 0 ? children : undefined,
         toolCalls: unboundTools.length > 0 ? unboundTools : undefined,
+        toolCallCount: turnToolCalls.length,
+        byTool: turnToolCalls.length > 0 ? toolUsageFromCalls([turnToolCalls]) : undefined,
         promptText: text?.userMessage ?? null,
         responseText: text?.assistantResponse ?? null,
       });
@@ -517,6 +559,7 @@ export class Aggregator {
       sessionId,
       turns,
       byModel,
+      byTool: toolUsageFromCalls([...toolCallsByTrace.values()]),
       totalCost: period.totalCost,
       totalLlmCalls: period.modelTurns,
     };

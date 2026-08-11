@@ -5,6 +5,7 @@ import type {
   WorkspaceCost,
   DailyAggregate,
 } from './models.js';
+import { sumToolUsage } from './toolUsage.js';
 
 /** Format a timestamp as local YYYY-MM-DD. */
 export function localDateString(ms: number): string {
@@ -36,6 +37,7 @@ export function sessionInfoToSnapshot(s: SessionInfo): SessionSnapshot {
       cacheWriteTokens: m.cacheWriteTokens,
       totalCost: m.totalCost,
     })),
+    byTool: s.byTool ? s.byTool.map(t => ({ ...t })) : undefined,
     startedAt: s.startedAt,
     endedAt: s.endedAt,
   };
@@ -89,6 +91,8 @@ export function aggregateSnapshots(date: string, sessions: SessionSnapshot[]): D
     }
   }
 
+  const byTool = sumToolUsage(sessions.map(s => s.byTool));
+
   return {
     date,
     totalCost: sessions.reduce((sum, s) => sum + s.totalCost, 0),
@@ -99,6 +103,7 @@ export function aggregateSnapshots(date: string, sessions: SessionSnapshot[]): D
     cacheWriteTokens: sessions.reduce((sum, s) => sum + s.cacheWriteTokens, 0),
     byModel: [...modelMap.values()].sort((a, b) => b.totalCost - a.totalCost),
     byWorkspace: [...workspaceMap.values()].sort((a, b) => b.totalCost - a.totalCost),
+    byTool: byTool.length > 0 ? byTool : undefined,
     sessionCount: sessions.length,
     sessions,
   };
@@ -144,5 +149,5 @@ export function mergeDailyAggregates(
   // No per-session detail on at least one side: keep the higher-cost aggregate,
   // preserving any per-session snapshots that do exist.
   const winner = incoming.totalCost >= existing.totalCost ? incoming : existing;
-  return { ...winner, sessions: inSessions ?? exSessions };
+  return { ...winner, sessions: inSessions ?? exSessions, byTool: winner.byTool ?? existing.byTool ?? incoming.byTool };
 }

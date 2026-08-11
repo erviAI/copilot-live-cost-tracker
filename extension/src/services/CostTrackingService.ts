@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { ISpanRepository, ISessionTitleResolver, ITurnLabelProvider, IToolCallProvider, ITurnTextProvider } from '../data/interfaces.js';
-import type { Span, DashboardData, SessionDetailData, DataSourceStatus, PeriodCost, RangePreset, RangeSummary, RecentPrompt, DailyAggregate, ModelDetailBreakdown, TurnText } from '../domain/models.js';
+import type { Span, DashboardData, SessionDetailData, DataSourceStatus, PeriodCost, RangePreset, RangeSummary, RecentPrompt, DailyAggregate, ModelDetailBreakdown, TurnText, ToolCallSpan } from '../domain/models.js';
 import type { CostDataSource } from '../config.js';
 import type { CostHistoryService } from './CostHistoryService.js';
 import { Aggregator } from '../domain/Aggregator.js';
@@ -82,7 +82,7 @@ export class CostTrackingService implements vscode.Disposable {
       this.titleResolver.invalidateCache();
       const titles = await this.titleResolver.getAllTitles();
       const workspaces = await this.titleResolver.getAllWorkspaces();
-      const dayAggregates = this.buildDayAggregates(spans, titles, workspaces);
+      const dayAggregates = this.buildDayAggregates(spans, titles, workspaces, await this.fetchToolStats(since));
       await this.historyService.persist(dayAggregates);
       logger.info(`Backfilled history for ${dayAggregates.size} day(s) from agent-traces.db`);
     } catch (err) {
@@ -98,15 +98,30 @@ export class CostTrackingService implements vscode.Disposable {
   private buildDayAggregates(
     spans: Span[],
     titles: Map<string, string>,
-    workspaces: Map<string, string | null>
+    workspaces: Map<string, string | null>,
+    toolSpans?: ToolCallSpan[]
   ): Map<string, DailyAggregate> {
-    const sessions = this.aggregator.buildSessions(spans, titles, workspaces);
+    const sessions = this.aggregator.buildSessions(spans, titles, workspaces, toolSpans);
     const byDay = bucketSessionsByDay(sessions);
     const result = new Map<string, DailyAggregate>();
     for (const [date, daySessions] of byDay) {
       result.set(date, sessionsToDailyAggregate(date, daySessions));
     }
     return result;
+  }
+
+  /**
+   * Tool-call distribution is only recorded in agent-traces.db; the debug-logs
+   * fallback has no tool spans, so this degrades to undefined rather than failing.
+   */
+  private async fetchToolStats(sinceMs: number): Promise<ToolCallSpan[] | undefined> {
+    if (!this.toolCallProvider) return undefined;
+    try {
+      return await this.toolCallProvider.getToolCallsSince(sinceMs);
+    } catch (err) {
+      logger.warn('Tool stats query failed (continuing without tool data):', err);
+      return undefined;
+    }
   }
 
   /** Get the latest dashboard data (cached) */
@@ -213,6 +228,7 @@ export class CostTrackingService implements vscode.Disposable {
         sessionId,
         turns: [],
         byModel,
+        byTool: snap.byTool,
         totalCost: snap.totalCost,
         totalLlmCalls: snap.byModel.reduce((sum, m) => sum + m.calls, 0),
         historic: true,
@@ -329,15 +345,17 @@ export class CostTrackingService implements vscode.Disposable {
       // Fetch workspace names for sessions (populated during title scan)
       const sessionWorkspaces = await this.titleResolver.getAllWorkspaces();
 
+      const toolStats = tracesAvailable ? await this.fetchToolStats(sevenDaysAgo) : undefined;
+
       // Build dashboard
-      this.lastData = this.aggregator.buildDashboard(spans, titles, this.currentSessionId, sessionWorkspaces);
+      this.lastData = this.aggregator.buildDashboard(spans, titles, this.currentSessionId, sessionWorkspaces, toolStats);
       this.lastData.dataSourceStatus = dataSourceStatus;
       this._onDidUpdate.fire(this.lastData);
 
       // Periodically scrape to history files
       this.pollCount++;
       if (this.historyService && this.pollCount % this.historyScrapeInterval === 0) {
-        const dayAggregates = this.buildDayAggregates(spans, titles, sessionWorkspaces);
+        const dayAggregates = this.buildDayAggregates(spans, titles, sessionWorkspaces, toolStats);
         void this.historyService.persist(dayAggregates);
       }
     } catch (err) {

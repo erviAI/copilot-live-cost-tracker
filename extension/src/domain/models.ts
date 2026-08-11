@@ -74,6 +74,39 @@ export interface PeriodCost {
   cachedTokens: number;
   byModel: ModelCost[];
   byWorkspace: WorkspaceCost[];
+  /** Tool-call distribution; absent when agent-traces.db is unavailable. */
+  byTool?: ToolUsageStat[];
+}
+
+/** Aggregated usage of a single tool over some scope (range, session, turn). */
+export interface ToolUsageStat {
+  toolName: string;
+  calls: number;
+  /** Calls that ended with OTel status_code = 2. */
+  errors: number;
+  totalDurationMs: number;
+  /**
+   * Cost attributed to this tool: the cost of the model call that requested it,
+   * split evenly when a single call requested several tools. Tool calls that
+   * cannot be tied to a model call contribute 0.
+   */
+  totalCost: number;
+}
+
+/**
+ * Lightweight `execute_tool` span used for range-wide aggregation. Carries just
+ * enough to bind a tool back to the model call that requested it.
+ */
+export interface ToolCallSpan {
+  spanId: string;
+  traceId: string;
+  parentSpanId: string | null;
+  toolName: string;
+  chatSessionId: string | null;
+  conversationId: string | null;
+  statusCode: number;
+  startTimeMs: number;
+  endTimeMs: number;
 }
 
 /** Session summary for the recent sessions list */
@@ -92,6 +125,8 @@ export interface SessionInfo {
   cachedTokens: number;
   cacheWriteTokens: number;
   byModel: ModelCost[];
+  /** Tool-call distribution for this session; absent when tool data is unavailable. */
+  byTool?: ToolUsageStat[];
 }
 
 /** Daily bucket for the 7-day chart */
@@ -188,6 +223,10 @@ export interface TurnCost {
   children?: TurnCost[];
   /** Tool / function calls made while handling this turn */
   toolCalls?: ToolCall[];
+  /** Total tool calls in this turn, including those bound to model calls and subagents. */
+  toolCallCount?: number;
+  /** Tool-call distribution for this turn. */
+  byTool?: ToolUsageStat[];
   /** Full user prompt text for this turn (from session-store.db), if available. */
   promptText?: string | null;
   /** Final assistant response text for this turn (from session-store.db), if available. */
@@ -206,6 +245,11 @@ export interface ToolCall {
   startTimeMs: number;
   durationMs: number;
   status: 'ok' | 'error';
+  /**
+   * Share of the requesting model call's cost attributed to this tool call.
+   * Absent when the call could not be bound to a model call.
+   */
+  cost?: number;
   /** Tool call arguments (JSON string) as captured by Copilot, if available. */
   args?: string | null;
   /** Tool call result/output (capped), if available. */
@@ -226,6 +270,8 @@ export interface SessionDetailData {
   sessionId: string;
   turns: TurnCost[];
   byModel: ModelDetailBreakdown[];
+  /** Tool-call distribution across the whole session. */
+  byTool?: ToolUsageStat[];
   totalCost: number;
   totalLlmCalls: number;
   /**
@@ -306,6 +352,8 @@ export interface SessionSnapshot {
   cachedTokens: number;
   cacheWriteTokens: number;
   byModel: ModelCostSnapshot[];
+  /** Optional for back-compat with history files written before tool tracking. */
+  byTool?: ToolUsageStat[];
   startedAt: number;
   endedAt: number;
 }
@@ -328,6 +376,8 @@ export interface DailyAggregate {
   cacheWriteTokens: number;
   byModel: ModelCostSnapshot[];
   byWorkspace: WorkspaceCost[];
+  /** Optional for back-compat with history files written before tool tracking. */
+  byTool?: ToolUsageStat[];
   sessionCount: number;
   /**
    * Per-session snapshots for this day. Retained so historic sessions can still
@@ -363,6 +413,8 @@ export interface RangeSummary {
   cachedTokens: number;
   cacheWriteTokens: number;
   byModel: ModelCostSnapshot[];
+  /** Tool-call distribution summed across the window. */
+  byTool: ToolUsageStat[];
   daily: RangeDailyPoint[];
   /** Number of days in the window that actually had recorded data. */
   daysWithData: number;

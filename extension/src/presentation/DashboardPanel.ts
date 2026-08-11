@@ -232,6 +232,14 @@ export class DashboardPanel {
     .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
     .model-name { flex: 1; font-size: 0.88em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .model-cost { font-weight: 600; white-space: nowrap; }
+    .tool-more-cell { color: var(--text-secondary); font-size: 0.85em; text-align: center; }
+    .tool-more:hover .tool-more-cell { color: var(--accent); }
+    .session-prompt-tools { padding: 2px 0 4px 18px; }
+    .session-prompt-tools-head {
+      display: flex; align-items: center; gap: 6px; cursor: pointer;
+      font-size: 0.8em; color: var(--text-secondary); padding: 2px 0;
+    }
+    .session-prompt-tools-head:hover { color: var(--accent); }
     .budget { margin-bottom: 18px; }
     .budget-head { display: flex; justify-content: space-between; font-size: 0.9em; margin-bottom: 4px; }
     .budget-track { height: 10px; border-radius: 5px; background: var(--card-border); overflow: hidden; }
@@ -376,6 +384,7 @@ export class DashboardPanel {
     <button class="tab active" data-tab="activity">Activity</button>
     <button class="tab" data-tab="cost">Cost</button>
     <button class="tab" data-tab="models">Models</button>
+    <button class="tab" data-tab="tools">Tools</button>
   </div>
   <div class="range-selector">
     <button class="range-btn active" data-range="7d">7 Days</button>

@@ -81,6 +81,24 @@ describe('sessionsToDailyAggregate', () => {
     expect(agg.byWorkspace).toHaveLength(2);
     expect(agg.sessions).toHaveLength(2);
   });
+
+  it('sums per-tool usage across sessions and omits it when absent', () => {
+    const agg = sessionsToDailyAggregate('2026-01-15', [
+      session({ sessionId: 'a', byTool: [{ toolName: 'read_file', calls: 2, errors: 0, totalDurationMs: 20, totalCost: 0.2 }] }),
+      session({
+        sessionId: 'b',
+        byTool: [
+          { toolName: 'read_file', calls: 1, errors: 1, totalDurationMs: 5, totalCost: 0.1 },
+          { toolName: 'grep', calls: 1, errors: 0, totalDurationMs: 3, totalCost: 0 },
+        ],
+      }),
+    ]);
+    expect(agg.byTool).toHaveLength(2);
+    expect(agg.byTool![0]).toMatchObject({ toolName: 'read_file', calls: 3, errors: 1, totalDurationMs: 25 });
+    expect(agg.byTool![0].totalCost).toBeCloseTo(0.3);
+
+    expect(sessionsToDailyAggregate('2026-01-15', [session()]).byTool).toBeUndefined();
+  });
 });
 
 describe('mergeDailyAggregates', () => {
@@ -133,6 +151,21 @@ describe('mergeDailyAggregates', () => {
     const incoming = sessionsToDailyAggregate(day, [session({ sessionId: 'a', totalCost: 0.5, byModel: [model({ totalCost: 0.5 })] })]);
     const merged = mergeDailyAggregates(legacy, incoming);
     expect(merged.totalCost).toBeCloseTo(2.0); // legacy total wins (higher)
+  });
+
+  it('recomputes tool usage from the session union', () => {
+    const existing = sessionsToDailyAggregate(day, [
+      session({ sessionId: 'a', totalCost: 0.4, byModel: [model({ totalCost: 0.4 })], byTool: [{ toolName: 'read_file', calls: 5, errors: 0, totalDurationMs: 50, totalCost: 0.4 }] }),
+    ]);
+    const incoming = sessionsToDailyAggregate(day, [
+      session({ sessionId: 'b', totalCost: 0.6, byModel: [model({ totalCost: 0.6 })], byTool: [{ toolName: 'read_file', calls: 2, errors: 1, totalDurationMs: 10, totalCost: 0.6 }] }),
+    ]);
+
+    const merged = mergeDailyAggregates(existing, incoming);
+
+    expect(merged.byTool).toHaveLength(1);
+    expect(merged.byTool![0]).toMatchObject({ toolName: 'read_file', calls: 7, errors: 1, totalDurationMs: 60 });
+    expect(merged.byTool![0].totalCost).toBeCloseTo(1.0);
   });
 });
 

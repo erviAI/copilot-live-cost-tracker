@@ -1,4 +1,4 @@
-import type { Span, TurnText } from '../domain/models.js';
+import type { Span, ToolCallSpan, TurnText } from '../domain/models.js';
 
 /**
  * Interface for accessing token/span data from agent-traces.db.
@@ -39,6 +39,12 @@ export interface ITurnLabelProvider {
 export interface IToolCallProvider {
   /** Get tool/function call spans for a session. */
   getToolSpansForSession(sessionId: string): Promise<Span[]>;
+
+  /**
+   * Get every tool call since a timestamp, with enough detail to attribute the
+   * requesting model call's cost across the tools it invoked.
+   */
+  getToolCallsSince(timestampMs: number): Promise<ToolCallSpan[]>;
 }
 
 /**
