@@ -159,6 +159,7 @@ describe('PricingEngine', () => {
         input: 10.0,
         output: 45.0,
         cached: 1.0,
+        cacheWrite: 12.5,
       });
     });
 
