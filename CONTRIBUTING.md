@@ -50,6 +50,23 @@ npm test
 
 CI runs these same checks on every pull request.
 
+## Dependency updates
+
+Dependabot raises grouped pull requests weekly. Dev-dependency patch and minor
+updates merge themselves once CI passes; production dependencies and every major
+are reviewed by hand. The grouping and ignore rules, with their rationale, live in
+[.github/dependabot.yml](.github/dependabot.yml).
+
+Auto-merge relies on two repository settings that are not visible in this repository:
+
+- **Allow auto-merge** must stay enabled.
+- The `Lint, typecheck, build & test` check must stay **required** on `main`.
+  Without it, auto-merge lands bumps without waiting for CI.
+
+If Dependabot pull requests stop appearing or ignore the configured rules, check the
+`.github/dependabot.yml` status check on the last pull request that touched it. An
+invalid config makes Dependabot fall back to the previous valid version silently.
+
 ## Coding guidelines
 
 - Keep the layering intact: `data → domain → services → presentation`. Domain
