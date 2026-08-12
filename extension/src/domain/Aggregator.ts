@@ -2,6 +2,7 @@ import type { Span, ModelCost, PeriodCost, DailyBucket, SessionInfo, DashboardDa
 import { CostCalculator } from './CostCalculator.js';
 import { isIgnoredAgent } from './filters.js';
 import { isSubagentSessionId } from './sessionIds.js';
+import { autoTurnLabel, classifyTurnOrigin } from './turnOrigin.js';
 import { attributeToolCosts, bindToolsToModelCalls, groupToolSpansBySession, toolUsageFromCalls, toolUsageFromSpans } from './toolUsage.js';
 
 /**
@@ -462,6 +463,7 @@ export class Aggregator {
           turnIndex,
           traceId,
           label: null,
+          origin: 'subagent',
           agentName: subSpans[0]?.agentName ?? null,
           model: subSpans[0]?.responseModel ?? subSpans[0]?.requestModel ?? null,
           startTimeMs: Math.min(...subSpans.map(s => s.startTimeMs)),
@@ -499,6 +501,7 @@ export class Aggregator {
       const label = turnLabels?.get(traceId) ?? null;
       // Resolve full prompt/response text (keyed by turnIndex) when available.
       const text = turnTexts?.get(turnIndex);
+      const origin = classifyTurnOrigin({ label, promptText: text?.userMessage });
 
       // Bind each tool/function call to the model call that requested it.
       // Scope by parentSpanId (the owning agent) so parallel subagents never
@@ -514,6 +517,8 @@ export class Aggregator {
         turnIndex,
         traceId,
         label,
+        origin,
+        displayLabel: autoTurnLabel(origin, label ?? text?.userMessage),
         agentName: parentSpans[0]?.agentName ?? turnSpans[0]?.agentName ?? null,
         model: parentSpans[0]?.responseModel ?? parentSpans[0]?.requestModel ?? turnSpans[0]?.responseModel ?? turnSpans[0]?.requestModel ?? null,
         startTimeMs: Math.min(...turnSpans.map(s => s.startTimeMs)),
