@@ -46,6 +46,7 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
 
   // microsoft
   'mai-code-1-flash': { input: 0.75, output: 4.50, cached: 0.075 },
+  'mai-code-1.1-flash': { input: 0.20, output: 1.20, cached: 0.02 },
 
   // moonshot_ai
   'kimi-k2.7-code': { input: 0.95, output: 4.00, cached: 0.19 },
