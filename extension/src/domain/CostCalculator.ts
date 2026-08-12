@@ -11,7 +11,7 @@ export class CostCalculator {
   /**
    * Calculate the cost of a single LLM call.
    * @param model The response_model identifier from the span
-   * @param inputTokens Total input tokens (includes cached)
+   * @param inputTokens Total input tokens (includes cache reads and writes)
    * @param outputTokens Total output tokens
    * @param cachedTokens Tokens served from cache (cache reads)
    * @param cacheWriteTokens Tokens written to cache
@@ -54,16 +54,12 @@ export class CostCalculator {
     const cached = sanitizeTokens(cachedTokens);
     const cacheWrite = sanitizeTokens(cacheWriteTokens);
 
-    // Anthropic models bill input as either cache reads or cache writes — the
-    // raw "input" rate is never charged on its own. We detect Anthropic-style
-    // pricing by the presence of a cacheWrite rate and zero out fresh input
-    // cost so it neither shows in the breakdown nor contributes to the total.
-    const isCacheOnlyInput = pricing.cacheWrite !== undefined;
-
-    const freshInputTokens = Math.max(0, input - cached);
-    const freshInputCost = isCacheOnlyInput
-      ? 0
-      : (freshInputTokens / 1_000_000) * pricing.input;
+    // `input` counts every prompt token, including the ones served from cache
+    // and the ones written to it (verified against agent-traces telemetry:
+    // input_tokens ~= cached_tokens + cache_creation tokens for Claude calls).
+    // Subtracting both leaves the genuinely fresh tokens billed at the base rate.
+    const freshInputTokens = Math.max(0, input - cached - cacheWrite);
+    const freshInputCost = (freshInputTokens / 1_000_000) * pricing.input;
     const cacheReadCost = (cached / 1_000_000) * pricing.cached;
     const cacheWriteCost = pricing.cacheWrite !== undefined
       ? (cacheWrite / 1_000_000) * pricing.cacheWrite
@@ -123,8 +119,7 @@ function selectTierRates(
     input: tier.input,
     output: tier.output,
     cached: tier.cached,
-    // Fall back to the default tier's cache-write rate so an Anthropic-style
-    // model keeps its cache-only input billing if it ever gains a tier.
+    // Keep the default cache-write rate when the tier does not publish its own.
     cacheWrite: tier.cacheWrite ?? pricing.cacheWrite,
   };
 }
