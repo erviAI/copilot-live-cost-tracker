@@ -1,0 +1,35 @@
+name: Dependabot auto-merge
+
+# Enables auto-merge on Dependabot dev-dependency patch/minor PRs. GitHub still
+# holds the merge until the required CI checks pass. Production deps and majors
+# are left for manual review — better-sqlite3 is a native binding whose ABI must
+# match the user's system Node, which CI cannot prove.
+
+on: pull_request_target
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: Enable auto-merge
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      # No checkout: this workflow runs with write scope against the base repo,
+      # so it must never execute code from the pull request branch.
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge
+        if: >-
+          steps.metadata.outputs.dependency-type == 'direct:development' &&
+          contains(fromJSON('["version-update:semver-patch", "version-update:semver-minor"]'), steps.metadata.outputs.update-type)
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

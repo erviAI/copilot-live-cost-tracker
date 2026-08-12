@@ -5,9 +5,24 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: build(deps)
+      prefix-development: build(deps-dev)
+    # Let a release settle before it reaches us; majors get a full month so the
+    # rest of the toolchain (e.g. typescript-eslint after a TypeScript major)
+    # can catch up first.
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
     groups:
+      # Majors match no group on purpose: each arrives as its own PR, so one
+      # breaking bump can never block the routine ones.
       dev-dependencies:
         dependency-type: development
+        update-types: [minor, patch]
+      production-dependencies:
+        dependency-type: production
+        update-types: [minor, patch]
     ignore:
       # Pin @types/node to the major matching VS Code's bundled Node (24).
       # Bumping past it would type against APIs absent at runtime.
@@ -18,3 +33,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    commit-message:
+      prefix: build(deps)
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+    groups:
+      actions:
+        update-types: [minor, patch]
