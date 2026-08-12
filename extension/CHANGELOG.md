@@ -3,6 +3,21 @@
 All notable changes to the **Copilot Live Cost & Token Tracker** extension are
 documented in this file, with an emphasis on what changed for you, the user.
 
+## [1.7.0](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.6.1...v1.7.0) (2026-08-12)
+
+
+### Features
+
+* **prompts:** distinguish auto-generated terminal follow-ups from user prompts ([#73](https://github.com/erviAI/copilot-live-cost-tracker/issues/73)) ([1c49826](https://github.com/erviAI/copilot-live-cost-tracker/commit/1c49826e8e8772a23b3b9f147a1d66347b1c1726))
+* **tools:** add tool call distribution with cost attribution ([#71](https://github.com/erviAI/copilot-live-cost-tracker/issues/71)) ([a34a036](https://github.com/erviAI/copilot-live-cost-tracker/commit/a34a0365d411e1676c9839e334a635dd62a8b420))
+
+
+### Bug Fixes
+
+* **models:** add kimi-k3; drop gemini-2.5-pro, gemini-3-flash ([#68](https://github.com/erviAI/copilot-live-cost-tracker/issues/68)) ([3e6e5c1](https://github.com/erviAI/copilot-live-cost-tracker/commit/3e6e5c122ec9f14f30a5c36118c7d18dc3c5fc16))
+* **models:** add mai-code-1.1-flash ([#82](https://github.com/erviAI/copilot-live-cost-tracker/issues/82)) ([e75aa8c](https://github.com/erviAI/copilot-live-cost-tracker/commit/e75aa8ced1a78498ccbe5d487ced5b45ef3af2de))
+* **pricing:** stop zeroing fresh input cost for models with a cache-write rate ([#74](https://github.com/erviAI/copilot-live-cost-tracker/issues/74)) ([3e072a2](https://github.com/erviAI/copilot-live-cost-tracker/commit/3e072a299217457b46611a3d43bd0f810011d14f))
+
 ## [1.6.1](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.6.0...v1.6.1) (2026-07-31)
 
 
