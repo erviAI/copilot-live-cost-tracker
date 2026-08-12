@@ -28,6 +28,11 @@ updates:
       # Bumping past it would type against APIs absent at runtime.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # typescript-eslint 8.x caps its peer range at typescript <6.1.0, so
+      # TypeScript 7 cannot install alongside our linter. Revisit once
+      # typescript-eslint ships support for it.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
