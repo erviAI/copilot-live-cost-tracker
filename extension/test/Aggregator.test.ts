@@ -534,6 +534,47 @@ describe('Aggregator', () => {
     });
   });
 
+  describe('aggregateSessionDetail turn origin', () => {
+    const notification =
+      '[Terminal 975cde77-c5dd-4ffc-a317-4eec8a3520e8 notification: command completed with exit code 1. ' +
+      'Use send_to_terminal to send another command or kill_terminal to stop it.]\nTerminal output:\nPS C:\\repo> npm test';
+
+    it('marks turns typed by the user as user origin', () => {
+      const chat = makeSpan({ spanId: 'chat-1', traceId: 'tr', turnIndex: 0, startTimeMs: 6_000_000, endTimeMs: 6_000_100 });
+      const turnTexts = new Map([[0, { userMessage: 'Fix the failing test', assistantResponse: 'Done' }]]);
+
+      const turn = aggregator.aggregateSessionDetail('s1', [chat], undefined, undefined, turnTexts).turns[0];
+      expect(turn.origin).toBe('user');
+      expect(turn.displayLabel).toBeNull();
+    });
+
+    it('marks terminal notification turns as auto-terminal with a readable label', () => {
+      const chat = makeSpan({ spanId: 'chat-1', traceId: 'tr', turnIndex: 0, startTimeMs: 6_100_000, endTimeMs: 6_100_100 });
+      const turnTexts = new Map([[0, { userMessage: notification, assistantResponse: 'Retrying' }]]);
+
+      const turn = aggregator.aggregateSessionDetail('s1', [chat], undefined, undefined, turnTexts).turns[0];
+      expect(turn.origin).toBe('auto-terminal');
+      expect(turn.displayLabel).toBe('Terminal follow-up · command completed (exit 1)');
+    });
+
+    it('falls back to the trace label when no session-store text is available', () => {
+      const chat = makeSpan({ spanId: 'chat-1', traceId: 'tr', turnIndex: 0, startTimeMs: 6_200_000, endTimeMs: 6_200_100 });
+      const labels = new Map([['tr', notification.slice(0, 50) + '…']]);
+
+      const turn = aggregator.aggregateSessionDetail('s1', [chat], labels).turns[0];
+      expect(turn.origin).toBe('auto-terminal');
+    });
+
+    it('marks subagent child turns as subagent origin', () => {
+      const t0 = 6_300_000;
+      const parent = makeSpan({ spanId: 'chat-1', traceId: 'tr', turnIndex: 0, chatSessionId: 's1', startTimeMs: t0, endTimeMs: t0 + 100 });
+      const sub = makeSpan({ spanId: 'chat-2', traceId: 'tr', turnIndex: 0, chatSessionId: 'toolu_abc', startTimeMs: t0 + 200, endTimeMs: t0 + 300 });
+
+      const turn = aggregator.aggregateSessionDetail('s1', [parent, sub]).turns[0];
+      expect(turn.children?.[0].origin).toBe('subagent');
+    });
+  });
+
   describe('tool usage distribution', () => {
     it('summarises tool calls per turn and per session, counting bound and unbound calls', () => {
       const t0 = 5_000_000;

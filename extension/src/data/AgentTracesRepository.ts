@@ -193,7 +193,9 @@ export class AgentTracesRepository implements ISpanRepository, ITurnLabelProvide
   /**
    * Get user prompt labels for turns in a session.
    * Extracts the text from `copilot_chat.user_request` attribute on spans containing user prompts.
-   * Returns a map of traceId → user prompt (first 50 chars).
+   * Returns a map of traceId → user prompt (first 50 chars). Turns Copilot started
+   * itself after a terminal command finished are labelled with their raw
+   * notification text so the domain layer can recognise them.
    */
   async getTurnLabels(sessionId: string): Promise<Map<string, string>> {
     const db = await this.getDb();
@@ -205,7 +207,7 @@ export class AgentTracesRepository implements ISpanRepository, ITurnLabelProvide
         AND (s.chat_session_id = ? OR s.conversation_id = ?)
         AND s.chat_session_id NOT LIKE 'toolu_%'
         AND s.chat_session_id NOT LIKE 'call_%'
-        AND a.value LIKE '%<userRequest>%'
+        AND (a.value LIKE '%<userRequest>%' OR a.value LIKE '%[Terminal %notification:%')
       ORDER BY s.start_time_ms ASC
     `;
     const rows = await db.all<{ trace_id: string; value: string }>(sql, [sessionId, sessionId]);
@@ -363,14 +365,27 @@ export function shouldIncludeChatSpan(span: Span): boolean {
 const MAX_LABEL_LENGTH = 50;
 
 /**
+ * Terminal notifications keep a longer label: the status sentence ("command
+ * completed with exit code 1") sits behind a 36-char terminal id and would be
+ * cut off at the normal label length.
+ */
+const MAX_NOTIFICATION_LABEL_LENGTH = 120;
+
+/** Head of the synthetic message Copilot sends itself when a terminal command finishes. */
+const TERMINAL_NOTIFICATION_HEAD = /^\s*\[Terminal\s+[\w-]{6,}\s+notification:/;
+
+/**
  * Extract user-visible text from `copilot_chat.user_request` JSON value.
  * Format is a JSON array of content blocks: [{"type":"text","text":"..."}]
  * The user's actual message is wrapped in <userRequest>...</userRequest> tags.
+ * Automatic terminal follow-ups carry no such wrapper; they are the trailing
+ * text block instead.
  */
-function extractUserText(raw: string): string | null {
+export function extractUserText(raw: string): string | null {
   try {
     const blocks = JSON.parse(raw);
     if (!Array.isArray(blocks)) return null;
+    let notification: string | null = null;
     for (const block of blocks) {
       if (!block.text || typeof block.text !== 'string') continue;
       // Skip tool_result blocks
@@ -382,7 +397,12 @@ function extractUserText(raw: string): string | null {
         if (text.length === 0) continue;
         return text.length > MAX_LABEL_LENGTH ? text.slice(0, MAX_LABEL_LENGTH) + '…' : text;
       }
+      // Earlier turns are replayed as history, so keep the last notification seen.
+      if (TERMINAL_NOTIFICATION_HEAD.test(block.text)) {
+        notification = block.text.slice(0, MAX_NOTIFICATION_LABEL_LENGTH);
+      }
     }
+    return notification;
   } catch { /* invalid JSON, skip */ }
   return null;
 }

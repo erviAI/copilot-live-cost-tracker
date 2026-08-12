@@ -203,11 +203,21 @@ export interface SpanDetail {
   toolCalls?: ToolCall[];
 }
 
+/**
+ * Where a turn came from. `auto-terminal` turns are injected by Copilot when a
+ * background terminal command finishes — they cost money but nobody typed them.
+ */
+export type TurnOrigin = 'user' | 'auto-terminal' | 'subagent' | 'unknown';
+
 /** Per-turn cost breakdown for session detail view */
 export interface TurnCost {
   turnIndex: number;
   traceId: string;
   label: string | null;
+  /** Absent for turns aggregated before origin classification existed. */
+  origin?: TurnOrigin;
+  /** Readable stand-in for `label` when the raw prompt text is machine-generated. */
+  displayLabel?: string | null;
   agentName: string | null;
   model: string | null;
   startTimeMs: number;

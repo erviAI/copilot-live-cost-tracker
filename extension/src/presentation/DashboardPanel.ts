@@ -278,6 +278,7 @@ export class DashboardPanel {
     .prompts-session { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
     .prompts-label { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .prompts-muted { color: var(--text-secondary); font-style: italic; }
+    .origin-badge { display: inline-block; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); border: 1px solid var(--card-border); border-radius: 3px; padding: 0 4px; margin-right: 4px; }
 
     /* Session-grouped Activity rows */
     .session-row { cursor: pointer; }
