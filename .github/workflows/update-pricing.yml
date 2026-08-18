@@ -154,9 +154,44 @@ jobs:
         if: steps.decide.outputs.merge == 'true'
         run: bash .github/scripts/dispatch-and-wait.sh release-please.yml main
 
+      - name: Check the pending release carries only model fixes
+        id: release_scope
+        if: steps.decide.outputs.merge == 'true'
+        # A release PR is cumulative, so it can carry unrelated work. Features are
+        # never published unattended; only a pricing fix, optionally alongside commit
+        # types that change no shipped behaviour, releases itself.
+        run: |
+          previous="$(gh release view --json tagName --jq .tagName 2>/dev/null || true)"
+          if [ -z "$previous" ]; then
+            echo "reason=no previous release to compare against" >> "$GITHUB_OUTPUT"
+            echo "models_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          subjects="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${previous}...main" \
+            --jq '.commits[].commit.message | split("\n")[0]')"
+          echo "Commits since ${previous}:"
+          echo "$subjects"
+          # A breaking "!" before the colon also fails this match, which is intended.
+          other="$(echo "$subjects" \
+            | grep -vE '^(fix\(models\)|(build|chore|ci|docs|style|test)(\([^)]*\))?):' || true)"
+          fixes="$(echo "$subjects" | grep -cE '^fix\(models\):' || true)"
+          if [ -n "$other" ]; then
+            echo "models_only=false" >> "$GITHUB_OUTPUT"
+            echo "reason=release also contains: $(echo "$other" | tr '\n' '; ')" >> "$GITHUB_OUTPUT"
+          elif [ "$fixes" -eq 0 ]; then
+            echo "models_only=false" >> "$GITHUB_OUTPUT"
+            echo "reason=no fix(models) commit in the pending release" >> "$GITHUB_OUTPUT"
+          else
+            echo "models_only=true" >> "$GITHUB_OUTPUT"
+            echo "reason=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Merge the release pull request
         id: release_pr
         if: steps.decide.outputs.merge == 'true'
+        env:
+          MODELS_ONLY: ${{ steps.release_scope.outputs.models_only }}
+          SCOPE_REASON: ${{ steps.release_scope.outputs.reason }}
         run: |
           pr="$(gh pr list --label 'autorelease: pending' --base main --state open \
             --json number,headRefName --jq '.[0] // empty')"
@@ -166,6 +201,11 @@ jobs:
           fi
           number="$(echo "$pr" | jq -r .number)"
           branch="$(echo "$pr" | jq -r .headRefName)"
+          if [ "$MODELS_ONLY" != "true" ]; then
+            echo "::notice::Leaving release #${number} for manual publishing (${SCOPE_REASON})."
+            gh pr comment "$number" --body "Not published automatically: ${SCOPE_REASON}. Merge this pull request when you are ready to release."
+            exit 0
+          fi
           bash .github/scripts/dispatch-and-wait.sh ci.yml "$branch"
           gh pr merge "$number" --squash
           echo "merged=true" >> "$GITHUB_OUTPUT"
@@ -185,6 +225,7 @@ jobs:
           MERGED: ${{ steps.decide.outputs.merge }}
           REASON: ${{ steps.decide.outputs.reason }}
           RELEASED: ${{ steps.release_pr.outputs.merged }}
+          SCOPE_REASON: ${{ steps.release_scope.outputs.reason }}
         run: |
           {
             if [ -z "$CHANGED" ]; then
@@ -200,6 +241,10 @@ jobs:
               echo "| Largest rate change | ${DELTA}% |"
               echo "| Auto-merged | ${MERGED} |"
               if [ "$MERGED" != "true" ]; then echo "| Held because | ${REASON} |"; fi
-              if [ "$RELEASED" = "true" ]; then echo "| Release | published |"; fi
+              if [ "$RELEASED" = "true" ]; then
+                echo "| Release | published |"
+              elif [ "$MERGED" = "true" ]; then
+                echo "| Release | left for manual publishing: ${SCOPE_REASON} |"
+              fi
             fi
           } >> "$GITHUB_STEP_SUMMARY"

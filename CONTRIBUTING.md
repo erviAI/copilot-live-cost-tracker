@@ -91,9 +91,23 @@ gh workflow run update-pricing.yml -f auto_merge=false
 gh workflow run update-pricing.yml -f max_rate_delta_pct=5   # tighten the rate guard
 ```
 
-The release pull request is cumulative, so an automatic pricing release also ships any
-other commits merged since the last release. They have already passed CI and review, which
-is why this is allowed.
+### Only pricing fixes publish themselves
+
+Features are never published unattended. A release pull request is cumulative, so it can
+pick up unrelated work merged since the last release; the workflow therefore inspects every
+commit in the pending release and only merges it when they are all either `fix(models)` or a
+type that ships no behaviour change (`build`, `chore`, `ci`, `docs`, `style`, `test`). A
+breaking `!` marker also disqualifies the release.
+
+Anything else — `feat`, a non-model `fix`, `perf`, `refactor` — leaves the release pull
+request open with a comment explaining why. The pricing fix is still merged to `main`; only
+the release waits for you. Merge the release pull request whenever you are ready and the
+Marketplace publish runs from there as usual.
+
+One consequence: a dependency bump merged in the same window does not block the automatic
+release, but any feature does. To require pricing fixes and nothing else, drop the extra
+types from the `grep -vE` allowlist in the "Check the pending release carries only model
+fixes" step.
 
 ### Why every step is dispatched explicitly
 
