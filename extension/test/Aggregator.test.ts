@@ -107,6 +107,27 @@ describe('Aggregator', () => {
       expect(sol.totalCost).toBeCloseTo(2.45, 4);
       expect(result.totalCost).toBeCloseTo(2.45, 4);
     });
+
+    it('counts the uncached prompt as cache write when the provider reports none', () => {
+      // gpt-5.6-sol bills cache writes but omits cache_creation_input_tokens.
+      const span = makeSpan({
+        responseModel: 'gpt-5.6-sol',
+        inputTokens: 243_200, cachedTokens: 21_400, outputTokens: 577, cacheWriteTokens: null,
+      });
+
+      const sol = aggregator.aggregatePeriod([span]).byModel[0];
+
+      expect(sol.cacheWriteTokens).toBe(221_800);
+      expect(sol.freshInputCost).toBe(0);
+      // 221.8k × $6.25/1M + 21.4k × $0.50/1M + 577 × $30/1M
+      expect(sol.totalCost).toBeCloseTo(1.41426, 5);
+    });
+
+    it('leaves cache write at zero for models that do not bill it', () => {
+      const span = makeSpan({ responseModel: 'gpt-4.1', cacheWriteTokens: null });
+
+      expect(aggregator.aggregatePeriod([span]).byModel[0].cacheWriteTokens).toBe(0);
+    });
   });
 
   describe('buildDashboard', () => {

@@ -15,7 +15,13 @@ export interface Span {
   inputTokens: number;
   outputTokens: number;
   cachedTokens: number;
-  cacheWriteTokens: number;
+  /**
+   * Tokens written to the prompt cache, or null when the provider did not
+   * report them at all (some models bill cache writes but omit the field).
+   * A reported 0 and an absent value are billed differently — see
+   * {@link CostCalculator.resolveCacheWriteTokens}.
+   */
+  cacheWriteTokens: number | null;
   reasoningTokens: number;
   startTimeMs: number;
   endTimeMs: number;

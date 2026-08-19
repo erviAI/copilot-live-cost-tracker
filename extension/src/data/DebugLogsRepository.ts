@@ -14,7 +14,8 @@ import type { Span } from '../domain/models.js';
  * the OpenTelemetry tracing feature is newer than the debug log.
  *
  * Numeric totals match `agent-traces.db` exactly **except** cache-write
- * tokens (`gen_ai.usage.cache_creation.input_tokens`) are not surfaced here.
+ * tokens (`gen_ai.usage.cache_creation.input_tokens`), which are not surfaced
+ * here and are left unreported so the pricing layer can derive them.
  *
  * Per-file caching (path → {mtime, spans}) avoids re-parsing unchanged logs.
  */
@@ -165,7 +166,7 @@ async function parseMainJsonl(file: string, sessionId: string): Promise<Span[]> 
       inputTokens,
       outputTokens,
       cachedTokens,
-      cacheWriteTokens: 0, // not present in debug logs
+      cacheWriteTokens: null, // not present in debug logs; derived from pricing
       reasoningTokens: 0,
       startTimeMs: ts,
       endTimeMs: ts + dur,

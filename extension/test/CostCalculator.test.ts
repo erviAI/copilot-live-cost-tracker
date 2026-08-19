@@ -42,6 +42,7 @@ describe('CostCalculator', () => {
       expect(r.totalCost).toBeCloseTo(0.04 + 0.125, 4);
     });
 
+
     it('calculates cost for OpenAI model (no cache write)', () => {
       // GPT-4.1: input=$2, output=$8, cached=$0.50
       const result = calculator.calculate(
@@ -85,6 +86,7 @@ describe('CostCalculator', () => {
       expect(result).toBeNull();
     });
 
+
     it('handles large token counts (1M+) correctly', () => {
       // 1M uncached input tokens on Claude Opus 4.5 — nothing was served from or
       // written to cache, so all of it is billed at the base input rate.
@@ -97,6 +99,34 @@ describe('CostCalculator', () => {
       expect(openai).not.toBeNull();
       expect(openai!.freshInputCost).toBeCloseTo(2.00, 4);
       expect(openai!.totalCost).toBeCloseTo(2.00, 4);
+    });
+  });
+
+  describe('resolveCacheWriteTokens', () => {
+    it('uses the reported count, including a reported zero', () => {
+      expect(calculator.resolveCacheWriteTokens('claude-opus-4-5', 100_000, 60_000, 20_000)).toBe(20_000);
+      expect(calculator.resolveCacheWriteTokens('claude-opus-4-5', 100_000, 60_000, 0)).toBe(0);
+    });
+
+    it('derives the uncached prompt as cache write when the model bills cache writes but reports none', () => {
+      // gpt-5.6-sol has a cacheWrite rate but never sends cache_creation_input_tokens.
+      expect(calculator.resolveCacheWriteTokens('gpt-5.6-sol', 243_200, 21_400, null)).toBe(221_800);
+    });
+
+    it('reports no cache write for models without a cache-write rate', () => {
+      expect(calculator.resolveCacheWriteTokens('gpt-4.1', 50_000, 30_000, null)).toBe(0);
+      expect(calculator.resolveCacheWriteTokens('unknown-model', 50_000, 30_000, null)).toBe(0);
+    });
+
+    it('reports no cache write for a zero cache-write rate', () => {
+      const zeroRate = new CostCalculator(
+        new PricingEngine({ 'free-writes': { input: 5, output: 25, cached: 0.5, cacheWrite: 0 } })
+      );
+      expect(zeroRate.resolveCacheWriteTokens('free-writes', 50_000, 30_000, null)).toBe(0);
+    });
+
+    it('clamps to zero when cached exceeds input', () => {
+      expect(calculator.resolveCacheWriteTokens('gpt-5.6-sol', 1_000, 2_000, null)).toBe(0);
     });
   });
 
