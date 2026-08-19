@@ -1,21 +1,48 @@
 name: Update Copilot pricing
 
 # Keeps extension/src/domain/pricing-data.ts in sync with GitHub's published
-# Copilot pricing table and opens a PR whenever the rates change.
+# Copilot pricing table, then drives the whole release train: open a PR, run CI
+# on it, merge it, merge the release PR, and publish to the Marketplace.
+#
+# Each downstream workflow is dispatched explicitly because anything this job
+# authors with GITHUB_TOKEN cannot trigger workflows by event. Three guards stop
+# the automatic path and leave the PR open for review instead: a model was
+# dropped, a rate moved more than max_rate_delta_pct, or files outside the
+# pricing data changed.
 
 on:
   schedule:
     # Every Monday at 06:00 UTC.
     - cron: '0 6 * * 1'
   workflow_dispatch:
+    inputs:
+      auto_merge:
+        description: 'Merge and publish automatically when CI is green'
+        type: boolean
+        default: true
+      max_rate_delta_pct:
+        description: 'Withhold auto-merge if any rate moves more than this percent'
+        type: string
+        default: '25'
 
 permissions:
   contents: write
   pull-requests: write
+  # Needed to dispatch and watch ci.yml and release-please.yml.
+  actions: write
+
+concurrency:
+  group: update-pricing
+  cancel-in-progress: false
 
 jobs:
   update-pricing:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      AUTO_MERGE: ${{ github.event_name != 'workflow_dispatch' || inputs.auto_merge }}
+      PRICING_BRANCH: fix/update-pricing
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -27,19 +54,41 @@ jobs:
 
       - name: Install generator dependencies
         working-directory: tools/update-pricing
-        run: npm install --no-audit --no-fund
+        # npm ci, not npm install: a lockfile rewrite would trip the file-scope guard.
+        run: npm ci --no-audit --no-fund
 
       - name: Regenerate pricing-data.ts
         id: regenerate
         working-directory: tools/update-pricing
+        env:
+          MAX_RATE_DELTA_PCT: ${{ inputs.max_rate_delta_pct || '25' }}
         run: node generate.mjs
 
+      - name: Check that only the pricing files changed
+        id: scope
+        if: steps.regenerate.outputs.has_changes == 'true'
+        # porcelain v1 is two status characters plus a space, so the path starts at column 4.
+        # Anything the allowlist does not match exactly is treated as unexpected.
+        run: |
+          unexpected="$(git status --porcelain | cut -c4- \
+            | grep -vxF -e 'extension/src/domain/pricing-data.ts' \
+                        -e 'tools/update-pricing/extra-models.json' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "files_ok=false" >> "$GITHUB_OUTPUT"
+            echo "reason=files outside the pricing data changed: $(echo "$unexpected" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+          else
+            echo "files_ok=true" >> "$GITHUB_OUTPUT"
+            echo "reason=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create pull request
+        id: pr
+        if: steps.regenerate.outputs.has_changes == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: ${{ steps.regenerate.outputs.pr_title }}
-          branch: fix/update-pricing
+          branch: ${{ env.PRICING_BRANCH }}
           delete-branch: true
           title: ${{ steps.regenerate.outputs.pr_title }}
           body: |
@@ -49,9 +98,153 @@ jobs:
 
             ${{ steps.regenerate.outputs.model_changes_body }}
 
-            Review the diff to confirm the new rates before merging. New model
-            versions that land between runs are priced tentatively at runtime
-            via the PricingEngine family fallback until this PR is merged.
+            Largest rate change this run: ${{ steps.regenerate.outputs.max_rate_delta_pct }}%.
+
+            New model versions that land between runs are priced tentatively at
+            runtime via the PricingEngine family fallback until this PR merges.
           labels: |
             dependencies
             automated
+
+      - name: Decide whether to merge automatically
+        id: decide
+        if: steps.regenerate.outputs.has_changes == 'true'
+        env:
+          GUARD_OK: ${{ steps.regenerate.outputs.guard_ok }}
+          GUARD_REASON: ${{ steps.regenerate.outputs.guard_reason }}
+          FILES_OK: ${{ steps.scope.outputs.files_ok }}
+          FILES_REASON: ${{ steps.scope.outputs.reason }}
+        run: |
+          reasons=""
+          if [ "$GUARD_OK" != "true" ]; then reasons="$GUARD_REASON"; fi
+          if [ "$FILES_OK" != "true" ]; then reasons="$reasons; $FILES_REASON"; fi
+          if [ "$AUTO_MERGE" != "true" ]; then reasons="$reasons; auto-merge disabled for this run"; fi
+          reasons="${reasons#; }"
+          if [ -z "$reasons" ]; then
+            echo "merge=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "merge=false" >> "$GITHUB_OUTPUT"
+            echo "reason=$reasons" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Flag the pull request for manual review
+        if: steps.regenerate.outputs.has_changes == 'true' && steps.decide.outputs.merge != 'true'
+        env:
+          PR: ${{ steps.pr.outputs.pull-request-number }}
+          REASON: ${{ steps.decide.outputs.reason }}
+        run: |
+          gh pr comment "$PR" --body "Automatic merge withheld: ${REASON}. Review the rates and merge by hand."
+          gh pr edit "$PR" --add-label needs-review || true
+
+      - name: Run CI on the pricing branch
+        if: steps.decide.outputs.merge == 'true'
+        env:
+          HEAD_SHA: ${{ steps.pr.outputs.pull-request-head-sha }}
+        run: bash .github/scripts/dispatch-and-wait.sh ci.yml "$PRICING_BRANCH" "$HEAD_SHA"
+
+      - name: Merge the pricing pull request
+        if: steps.decide.outputs.merge == 'true'
+        env:
+          PR: ${{ steps.pr.outputs.pull-request-number }}
+          TITLE: ${{ steps.regenerate.outputs.pr_title }}
+        # --subject keeps the Conventional Commit line that release-please parses.
+        run: gh pr merge "$PR" --squash --delete-branch --subject "$TITLE"
+
+      - name: Update the release pull request
+        if: steps.decide.outputs.merge == 'true'
+        run: bash .github/scripts/dispatch-and-wait.sh release-please.yml main
+
+      - name: Check the pending release carries only model fixes
+        id: release_scope
+        if: steps.decide.outputs.merge == 'true'
+        # A release PR is cumulative, so it can carry unrelated work. Features are
+        # never published unattended; only a pricing fix, optionally alongside commit
+        # types that change no shipped behaviour, releases itself.
+        run: |
+          previous="$(gh release view --json tagName --jq .tagName 2>/dev/null || true)"
+          if [ -z "$previous" ]; then
+            echo "reason=no previous release to compare against" >> "$GITHUB_OUTPUT"
+            echo "models_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          subjects="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${previous}...main" \
+            --jq '.commits[].commit.message | split("\n")[0]')"
+          echo "Commits since ${previous}:"
+          echo "$subjects"
+          # A breaking "!" before the colon also fails this match, which is intended.
+          other="$(echo "$subjects" \
+            | grep -vE '^(fix\(models\)|(build|chore|ci|docs|style|test)(\([^)]*\))?):' || true)"
+          fixes="$(echo "$subjects" | grep -cE '^fix\(models\):' || true)"
+          if [ -n "$other" ]; then
+            echo "models_only=false" >> "$GITHUB_OUTPUT"
+            echo "reason=release also contains: $(echo "$other" | tr '\n' '; ')" >> "$GITHUB_OUTPUT"
+          elif [ "$fixes" -eq 0 ]; then
+            echo "models_only=false" >> "$GITHUB_OUTPUT"
+            echo "reason=no fix(models) commit in the pending release" >> "$GITHUB_OUTPUT"
+          else
+            echo "models_only=true" >> "$GITHUB_OUTPUT"
+            echo "reason=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge the release pull request
+        id: release_pr
+        if: steps.decide.outputs.merge == 'true'
+        env:
+          MODELS_ONLY: ${{ steps.release_scope.outputs.models_only }}
+          SCOPE_REASON: ${{ steps.release_scope.outputs.reason }}
+        run: |
+          pr="$(gh pr list --label 'autorelease: pending' --base main --state open \
+            --json number,headRefName --jq '.[0] // empty')"
+          if [ -z "$pr" ]; then
+            echo "::notice::No pending release pull request; nothing to publish."
+            exit 0
+          fi
+          number="$(echo "$pr" | jq -r .number)"
+          branch="$(echo "$pr" | jq -r .headRefName)"
+          if [ "$MODELS_ONLY" != "true" ]; then
+            echo "::notice::Leaving release #${number} for manual publishing (${SCOPE_REASON})."
+            gh pr comment "$number" --body "Not published automatically: ${SCOPE_REASON}. Merge this pull request when you are ready to release."
+            exit 0
+          fi
+          bash .github/scripts/dispatch-and-wait.sh ci.yml "$branch"
+          gh pr merge "$number" --squash
+          echo "merged=true" >> "$GITHUB_OUTPUT"
+
+      - name: Tag the release and publish to the Marketplace
+        if: steps.release_pr.outputs.merged == 'true'
+        run: bash .github/scripts/dispatch-and-wait.sh release-please.yml main
+
+      - name: Summary
+        if: always()
+        env:
+          CHANGED: ${{ steps.regenerate.outputs.has_changes }}
+          ADDED: ${{ steps.regenerate.outputs.added_count }}
+          REMOVED: ${{ steps.regenerate.outputs.removed_count }}
+          DELTA: ${{ steps.regenerate.outputs.max_rate_delta_pct }}
+          PR: ${{ steps.pr.outputs.pull-request-number }}
+          MERGED: ${{ steps.decide.outputs.merge }}
+          REASON: ${{ steps.decide.outputs.reason }}
+          RELEASED: ${{ steps.release_pr.outputs.merged }}
+          SCOPE_REASON: ${{ steps.release_scope.outputs.reason }}
+        run: |
+          {
+            if [ -z "$CHANGED" ]; then
+              echo "Run ended before the pricing table was regenerated."
+            elif [ "$CHANGED" != "true" ]; then
+              echo "Pricing table is already up to date; no pull request opened."
+            else
+              echo "| Field | Value |"
+              echo "| --- | --- |"
+              echo "| Pull request | #${PR} |"
+              echo "| Models added | ${ADDED} |"
+              echo "| Models dropped | ${REMOVED} |"
+              echo "| Largest rate change | ${DELTA}% |"
+              echo "| Auto-merged | ${MERGED} |"
+              if [ "$MERGED" != "true" ]; then echo "| Held because | ${REASON} |"; fi
+              if [ "$RELEASED" = "true" ]; then
+                echo "| Release | published |"
+              elif [ "$MERGED" = "true" ]; then
+                echo "| Release | left for manual publishing: ${SCOPE_REASON} |"
+              fi
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

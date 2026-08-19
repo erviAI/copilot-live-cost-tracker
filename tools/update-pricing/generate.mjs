@@ -178,6 +178,48 @@ function buildModelChangesBody(addedKeys, removedKeys) {
   return lines.join('\n');
 }
 
+/** Flatten an entry's default and long-context rates into one comparable record. */
+function flattenRates(entry) {
+  const lc = entry.longContext || {};
+  return {
+    input: entry.input,
+    output: entry.output,
+    cached: entry.cached,
+    cacheWrite: entry.cacheWrite,
+    'longContext.input': lc.input,
+    'longContext.output': lc.output,
+    'longContext.cached': lc.cached,
+    'longContext.cacheWrite': lc.cacheWrite,
+  };
+}
+
+/**
+ * Largest relative rate change, as a percentage, across models present in both
+ * the previous and the newly generated table. A wild swing here usually means
+ * the upstream YAML changed shape rather than that Copilot repriced, so the
+ * update workflow uses this to withhold automatic merging.
+ * @param {Map<string, any>} previous @param {Map<string, any>} current
+ */
+function maxRateDelta(previous, current) {
+  let pct = 0;
+  let worst = '';
+  for (const [key, before] of previous) {
+    const after = current.get(key);
+    if (!after) continue;
+    const a = flattenRates(before);
+    const b = flattenRates(after);
+    for (const field of Object.keys(a)) {
+      if (typeof a[field] !== 'number' || typeof b[field] !== 'number' || a[field] === 0) continue;
+      const delta = (Math.abs(b[field] - a[field]) / Math.abs(a[field])) * 100;
+      if (delta > pct) {
+        pct = delta;
+        worst = `${key} ${field} ${a[field]} -> ${b[field]}`;
+      }
+    }
+  }
+  return { pct, worst };
+}
+
 /**
  * Parse a previously generated pricing-data.ts into a Map of key -> numeric
  * rates. Used to capture the last-known rates of a model at the moment it is
@@ -398,11 +440,24 @@ async function build() {
 
   lines.push('};');
   lines.push('');
-  return { content: lines.join('\n'), extras: extrasRaw, extrasChanged, addedKeys, removedKeys };
+  const content = lines.join('\n');
+  return {
+    content,
+    extras: extrasRaw,
+    extrasChanged,
+    addedKeys,
+    removedKeys,
+    previousContent,
+    rateDelta: maxRateDelta(previous, parseGeneratedPricing(content)),
+  };
 }
 
+/** GITHUB_OUTPUT `key=value` lines cannot span newlines, and the values derive from upstream YAML. */
+const singleLine = (s) => String(s).replace(/[\r\n]+/g, ' ').trim();
+
 async function main() {
-  const { content, extras, extrasChanged, addedKeys, removedKeys } = await build();
+  const { content, extras, extrasChanged, addedKeys, removedKeys, previousContent, rateDelta } =
+    await build();
   const check = process.argv.includes('--check');
   const extrasText = serializeExtras(extras);
 
@@ -436,7 +491,11 @@ async function main() {
   } catch {
     // file missing → will be written
   }
-  if (currentExtrasOnDisk.replace(/\r\n/g, '\n') !== extrasText) {
+  const extrasStale = currentExtrasOnDisk.replace(/\r\n/g, '\n') !== extrasText;
+  const pricingStale = previousContent.replace(/\r\n/g, '\n') !== content;
+  const hasChanges = extrasStale || pricingStale;
+
+  if (extrasStale) {
     await writeFile(EXTRAS_PATH, extrasText, 'utf8');
     console.log(extrasChanged ? `Updated ${EXTRAS_PATH} (migrated deprecated models)` : `Updated ${EXTRAS_PATH}`);
   }
@@ -447,10 +506,34 @@ async function main() {
   const modelChangesBody = buildModelChangesBody(addedKeys, removedKeys);
   console.log(prTitle);
 
+  // Conditions under which the update workflow must not merge unattended.
+  const threshold = Number(process.env.MAX_RATE_DELTA_PCT ?? 25);
+  const guardFailures = [];
+  if (removedKeys.length > 0) {
+    guardFailures.push(`${removedKeys.length} model(s) dropped from the published table: ${removedKeys.join(', ')}`);
+  }
+  if (Number.isFinite(threshold) && rateDelta.pct > threshold) {
+    guardFailures.push(
+      `rate changed by ${rateDelta.pct.toFixed(2)}% (limit ${threshold}%): ${rateDelta.worst}`,
+    );
+  }
+  const guardOk = guardFailures.length === 0;
+  console.log(
+    `has_changes=${hasChanges} added=${addedKeys.length} removed=${removedKeys.length} ` +
+      `max_rate_delta=${rateDelta.pct.toFixed(2)}% guard_ok=${guardOk}`,
+  );
+  if (!guardOk) console.log(`guard_reason: ${guardFailures.join('; ')}`);
+
   if (process.env.GITHUB_OUTPUT) {
     const delimiter = `ghadelim_${Math.random().toString(36).slice(2)}`;
     const outputLines = [
-      `pr_title=${prTitle}`,
+      `pr_title=${singleLine(prTitle)}`,
+      `has_changes=${hasChanges}`,
+      `added_count=${addedKeys.length}`,
+      `removed_count=${removedKeys.length}`,
+      `max_rate_delta_pct=${rateDelta.pct.toFixed(2)}`,
+      `guard_ok=${guardOk}`,
+      `guard_reason=${singleLine(guardFailures.join('; '))}`,
       `model_changes_body<<${delimiter}`,
       modelChangesBody,
       delimiter,

@@ -2,13 +2,21 @@ name: Release Please
 
 # Parses Conventional Commits on every push to main and maintains a rolling
 # "release PR" that bumps extension/package.json and updates the changelog.
-# Merging that PR creates a GitHub Release + tag (vX.Y.Z), which in turn
-# triggers .github/workflows/publish.yml to publish to the Marketplace.
+# Merging that PR creates a GitHub Release + tag (vX.Y.Z).
+#
+# Publishing is chained as a job in this same run rather than driven by the
+# `release: published` event: release-please creates the release with
+# GITHUB_TOKEN, and events triggered by GITHUB_TOKEN do not start new workflow
+# runs, so that event never reaches publish.yml.
+#
+# workflow_dispatch lets update-pricing.yml drive this workflow after it merges
+# a pricing PR, since a bot-authored push to main cannot fire `push` either.
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -17,10 +25,20 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      tag_name: ${{ steps.release.outputs['extension--tag_name'] }}
     steps:
       - name: Run release-please
+        id: release
         uses: googleapis/release-please-action@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.releases_created == 'true'
+    uses: ./.github/workflows/publish.yml
+    secrets: inherit

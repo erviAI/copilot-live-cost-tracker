@@ -2,14 +2,23 @@ name: Publish Extension
 
 # Builds one platform-specific VSIX per target (each carries the matching
 # native better-sqlite3 binary) and publishes it to the VS Code Marketplace.
-# Triggered when release-please publishes a GitHub Release (tag vX.Y.Z).
+#
+# Normally invoked by release-please.yml via workflow_call once a release is
+# created. The `release` trigger is kept as a safety net for releases published
+# by hand, but note that a release created by release-please using GITHUB_TOKEN
+# does NOT fire it -- that is why the workflow_call path exists.
 
 on:
   release:
     types: [published]
-  # Manual trigger for testing the build/package matrix from any branch.
-  # Leave dry_run = true (default) to package + upload artifacts WITHOUT
-  # publishing to the Marketplace. Set it to false to do a real publish.
+  workflow_call:
+    inputs:
+      dry_run:
+        description: 'Package only, skip Marketplace publish'
+        type: boolean
+        default: false
+  # Manual trigger for testing the build/package matrix.
+  # Set dry_run = true to package + upload artifacts WITHOUT publishing.
   workflow_dispatch:
     inputs:
       dry_run:
@@ -61,7 +70,7 @@ jobs:
         run: npx @vscode/vsce package --target ${{ matrix.target }} -o copilot-cost-tracker-${{ matrix.target }}.vsix
 
       - name: Publish to Marketplace (${{ matrix.target }})
-        if: ${{ github.event_name == 'release' || github.event.inputs.dry_run == 'false' }}
+        if: ${{ github.event_name == 'release' || !inputs.dry_run }}
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: npx @vscode/vsce publish --packagePath copilot-cost-tracker-${{ matrix.target }}.vsix

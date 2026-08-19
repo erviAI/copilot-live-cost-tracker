@@ -1,12 +1,20 @@
 name: CI
 
 # Validates every push and pull request: lint, typecheck, build, and tests.
+#
+# workflow_dispatch exists so automation can run these checks on a bot-authored
+# branch. Pull requests opened by a workflow using GITHUB_TOKEN produce check
+# runs that sit waiting for manual approval, so the required status check would
+# otherwise never report. A dispatched run publishes its check against the head
+# commit and satisfies branch protection. The job name below is that required
+# check's context name -- renaming it breaks the automated release train.
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
