@@ -18,7 +18,7 @@ const SPAN_SELECT_SQL = `
     s.input_tokens AS inputTokens,
     s.output_tokens AS outputTokens,
     s.cached_tokens AS cachedTokens,
-    CAST(COALESCE(a.value, '0') AS INTEGER) AS cacheWriteTokens,
+    CAST(a.value AS INTEGER) AS cacheWriteTokens,
     COALESCE(s.reasoning_tokens, 0) AS reasoningTokens,
     s.start_time_ms AS startTimeMs,
     s.end_time_ms AS endTimeMs,
@@ -357,7 +357,7 @@ export function shouldIncludeChatSpan(span: Span): boolean {
     span.inputTokens > 0 ||
     span.outputTokens > 0 ||
     span.cachedTokens > 0 ||
-    span.cacheWriteTokens > 0;
+    (span.cacheWriteTokens ?? 0) > 0;
 
   return !isCanceled || hasResponseModel || hasUsage;
 }

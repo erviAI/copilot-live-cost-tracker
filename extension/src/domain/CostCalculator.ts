@@ -37,6 +37,31 @@ export class CostCalculator {
   }
 
   /**
+   * Resolve how many prompt tokens a call wrote to the cache.
+   *
+   * A reported count (including a reported 0) is always used as-is. `null`
+   * means the provider never sent one: some models bill cache writes yet omit
+   * `cache_creation_input_tokens` from their usage payload, so Copilot writes
+   * no span attribute and the write would otherwise be billed as fresh input.
+   * For those the uncached part of the prompt is what got written — spans that
+   * do report the field show exactly that shape (input == cache read + cache
+   * write, leaving only a couple of genuinely fresh tokens).
+   */
+  resolveCacheWriteTokens(
+    model: string,
+    inputTokens: number,
+    cachedTokens: number,
+    reportedCacheWriteTokens: number | null
+  ): number {
+    if (reportedCacheWriteTokens !== null) return sanitizeTokens(reportedCacheWriteTokens);
+    const pricing = this.pricingEngine.resolve(model);
+    // A zero rate means the model isn't billed for cache writes; deriving one
+    // would move the whole uncached prompt off the fresh-input rate for free.
+    if (!pricing?.cacheWrite) return 0;
+    return Math.max(0, sanitizeTokens(inputTokens) - sanitizeTokens(cachedTokens));
+  }
+
+  /**
    * Calculate cost using explicit rates (for testing or override scenarios).
    */
   calculateWithRates(

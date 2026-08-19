@@ -110,10 +110,17 @@ export class Aggregator {
     return attributeToolCosts(chatSpans, toolSpans, span => {
       const model = span.responseModel ?? span.requestModel ?? 'unknown';
       const cost = this.calculator.calculate(
-        model, span.inputTokens, span.outputTokens, span.cachedTokens, span.cacheWriteTokens, span.maxPromptTokens
+        model, span.inputTokens, span.outputTokens, span.cachedTokens, this.cacheWriteOf(span, model), span.maxPromptTokens
       );
       return cost?.totalCost ?? 0;
     });
+  }
+
+  /** Cache-write tokens for a span, derived when the provider reported none. */
+  private cacheWriteOf(span: Span, model: string): number {
+    return this.calculator.resolveCacheWriteTokens(
+      model, span.inputTokens, span.cachedTokens, span.cacheWriteTokens
+    );
   }
 
   /**
@@ -151,14 +158,15 @@ export class Aggregator {
       existing.inputTokens += span.inputTokens;
       existing.outputTokens += span.outputTokens;
       existing.cachedTokens += span.cachedTokens;
-      existing.cacheWriteTokens += span.cacheWriteTokens;
+      const cacheWriteTokens = this.cacheWriteOf(span, model);
+      existing.cacheWriteTokens += cacheWriteTokens;
 
       // Cost is accumulated per span rather than from the summed token totals:
       // the long-context pricing tier is chosen from each individual request's
       // input size, so summing first would erase which requests crossed the
       // threshold and bill everything at one tier.
       const cost = this.calculator.calculate(
-        model, span.inputTokens, span.outputTokens, span.cachedTokens, span.cacheWriteTokens, span.maxPromptTokens
+        model, span.inputTokens, span.outputTokens, span.cachedTokens, cacheWriteTokens, span.maxPromptTokens
       );
       if (cost) {
         existing.freshInputCost += cost.freshInputCost;
@@ -448,11 +456,12 @@ export class Aggregator {
         const subDuration = subSpans.reduce((sum, s) => sum + (s.endTimeMs - s.startTimeMs), 0);
         const subSpanDetails: SpanDetail[] = subSpans.map(s => {
           const model = s.responseModel ?? s.requestModel ?? 'unknown';
-          const cost = this.calculator.calculate(model, s.inputTokens, s.outputTokens, s.cachedTokens, s.cacheWriteTokens, s.maxPromptTokens);
+          const cacheWriteTokens = this.cacheWriteOf(s, model);
+          const cost = this.calculator.calculate(model, s.inputTokens, s.outputTokens, s.cachedTokens, cacheWriteTokens, s.maxPromptTokens);
           return {
             spanId: s.spanId, traceId: s.traceId, agentName: s.agentName, model,
             inputTokens: s.inputTokens, outputTokens: s.outputTokens,
-            cachedTokens: s.cachedTokens, cacheWriteTokens: s.cacheWriteTokens,
+            cachedTokens: s.cachedTokens, cacheWriteTokens,
             reasoningTokens: s.reasoningTokens,
             totalCost: cost?.totalCost ?? 0, durationMs: s.endTimeMs - s.startTimeMs,
             startTimeMs: s.startTimeMs, operationName: s.operationName, toolName: s.toolName,
@@ -486,11 +495,12 @@ export class Aggregator {
 
       const spanDetails: SpanDetail[] = parentSpans.map(s => {
         const model = s.responseModel ?? s.requestModel ?? 'unknown';
-        const cost = this.calculator.calculate(model, s.inputTokens, s.outputTokens, s.cachedTokens, s.cacheWriteTokens, s.maxPromptTokens);
+        const cacheWriteTokens = this.cacheWriteOf(s, model);
+        const cost = this.calculator.calculate(model, s.inputTokens, s.outputTokens, s.cachedTokens, cacheWriteTokens, s.maxPromptTokens);
         return {
           spanId: s.spanId, traceId: s.traceId, agentName: s.agentName, model,
           inputTokens: s.inputTokens, outputTokens: s.outputTokens,
-          cachedTokens: s.cachedTokens, cacheWriteTokens: s.cacheWriteTokens,
+          cachedTokens: s.cachedTokens, cacheWriteTokens,
           reasoningTokens: s.reasoningTokens,
           totalCost: cost?.totalCost ?? 0, durationMs: s.endTimeMs - s.startTimeMs,
           startTimeMs: s.startTimeMs, operationName: s.operationName, toolName: s.toolName,

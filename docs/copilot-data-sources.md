@@ -254,6 +254,7 @@ flowchart LR
 - **Two id columns on spans.** Always filter with both `chat_session_id` and `conversation_id` (they sometimes diverge). The pre-built `sessions` view splits a session if they do.
 - **Status codes.** `status_code = 1` = OK; `= 2` = ERROR; treat `<> 1` as error only after checking that `status_code != 0` (`0` = UNSET).
 - **Cache writes.** The `spans.cached_tokens` column holds cache *reads* only. Cache *writes* (Anthropic `cache_creation_input_tokens`) are stored as a `span_attributes` row with key `gen_ai.usage.cache_creation.input_tokens` — join `span_attributes` to surface them. `main.jsonl` does **not** carry this field: its `llm_request.attrs` only exposes `inputTokens` / `outputTokens` / `cachedTokens`. For cache-write totals, use `agent-traces.db`.
+- **Missing cache writes.** Copilot only writes that attribute when the response carries `usage.prompt_tokens_details.cache_creation_input_tokens`. Some models are billed for cache writes (`cache_write_price` in `models.json`) yet never report the field — e.g. the `gpt-5.6-*` family. An **absent** row is not the same as a reported `0`: `COALESCE(a.value, '0')` hides the difference and bills the whole cached-but-unread prefix as fresh input.
 
 ## Tooling in this repo
 
