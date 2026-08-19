@@ -3,6 +3,13 @@
 All notable changes to the **Copilot Live Cost & Token Tracker** extension are
 documented in this file, with an emphasis on what changed for you, the user.
 
+## [1.7.2](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.7.1...v1.7.2) (2026-08-19)
+
+
+### Bug Fixes
+
+* **cost:** derive cache-write tokens when the provider reports none ([#86](https://github.com/erviAI/copilot-live-cost-tracker/issues/86)) ([f2dcecf](https://github.com/erviAI/copilot-live-cost-tracker/commit/f2dcecf6e0ec895308dd744ec2d082be0f3bba0c))
+
 ## [1.7.1](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.7.0...v1.7.1) (2026-08-18)
 
 
