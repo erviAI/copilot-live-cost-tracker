@@ -124,6 +124,7 @@ window.addEventListener('message', (event: MessageEvent<InboundMessage>) => {
     thresholds = msg.thresholds;
     displayCurrency = msg.displayCurrency;
     requestRange(selectedRange);
+    renderTitlesLoading();
     renderActiveTab();
     // Re-fetch detail for on-screen sessions so live tool/model calls appear.
     refreshOpenSessionData();
@@ -287,6 +288,10 @@ function infoBadge(key: string): string {
 }
 
 // --- Rendering ---
+function renderTitlesLoading(): void {
+  document.getElementById('titles-loading')?.classList.toggle('hidden', !data?.titlesPending);
+}
+
 function renderActiveTab(): void {
   const panel = document.getElementById('panel');
   if (!panel) return;

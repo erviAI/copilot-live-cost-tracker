@@ -173,6 +173,11 @@ export interface DashboardData {
   recentSessions: SessionInfo[];
   updatedAt: string; // ISO timestamp
   dataSourceStatus?: DataSourceStatus;
+  /**
+   * True while session titles are still being resolved from disk. Sessions are
+   * shown with fallback names until the follow-up update arrives.
+   */
+  titlesPending?: boolean;
 }
 
 /** Budget threshold configuration */

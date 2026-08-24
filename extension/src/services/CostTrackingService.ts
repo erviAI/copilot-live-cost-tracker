@@ -368,6 +368,7 @@ export class CostTrackingService implements vscode.Disposable {
           spans, new Map(), this.currentSessionId, new Map(), undefined
         );
         provisional.dataSourceStatus = dataSourceStatus;
+        provisional.titlesPending = true;
         this.lastData = provisional;
         this._onDidUpdate.fire(provisional);
       }

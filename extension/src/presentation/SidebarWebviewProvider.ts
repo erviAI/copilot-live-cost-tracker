@@ -520,6 +520,26 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
       color: var(--text-muted);
     }
 
+    .titles-loading {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 8px;
+      padding: 5px 8px;
+      font-size: 0.82em;
+      color: var(--text-muted);
+      background: rgba(127,127,127,0.08);
+      border-radius: 4px;
+    }
+    .titles-loading-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: titles-pulse 1.1s ease-in-out infinite;
+    }
+    @keyframes titles-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
     .warning-banner {
       background: var(--vscode-inputValidation-warningBackground, #5a4a00);
       border: 1px solid var(--vscode-inputValidation-warningBorder, #b89500);
@@ -768,6 +788,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
         bannerHtml = renderWarningBanner(data.dataSourceStatus.message);
       } else if (data?.dataSourceStatus?.source === 'debug-logs') {
         bannerHtml = renderWarningBanner(data.dataSourceStatus.message, true);
+      }
+      if (data?.titlesPending) {
+        bannerHtml += '<div class="titles-loading"><span class="titles-loading-dot"></span>Loading session titles…</div>';
       }
 
       if (!data || (data.today.modelTurns === 0 && data.thisWeek.modelTurns === 0)) {
