@@ -3,6 +3,21 @@
 All notable changes to the **Copilot Live Cost & Token Tracker** extension are
 documented in this file, with an emphasis on what changed for you, the user.
 
+## [1.8.0](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.7.1...v1.8.0) (2026-08-24)
+
+
+### Features
+
+* **dashboard:** show average tokens per LLM call ([#91](https://github.com/erviAI/copilot-live-cost-tracker/issues/91)) ([440875e](https://github.com/erviAI/copilot-live-cost-tracker/commit/440875eac5ba863900fd51cd45caa7b9c6dbb9fc))
+* **dashboard:** surface conversation compaction cost and let it be inspected ([#92](https://github.com/erviAI/copilot-live-cost-tracker/issues/92)) ([a9da7c2](https://github.com/erviAI/copilot-live-cost-tracker/commit/a9da7c23a7065ba128f67411203e5fcfd5aa7653))
+* inspect model responses in the dashboard, and fix the startup cost of reading debug logs ([#90](https://github.com/erviAI/copilot-live-cost-tracker/issues/90)) ([f3e37b5](https://github.com/erviAI/copilot-live-cost-tracker/commit/f3e37b5d78713c26e808d789a60adc79a713e25c))
+
+
+### Bug Fixes
+
+* **cost:** derive cache-write tokens when the provider reports none ([#86](https://github.com/erviAI/copilot-live-cost-tracker/issues/86)) ([f2dcecf](https://github.com/erviAI/copilot-live-cost-tracker/commit/f2dcecf6e0ec895308dd744ec2d082be0f3bba0c))
+* **models:** update Copilot model pricing ([#89](https://github.com/erviAI/copilot-live-cost-tracker/issues/89)) ([8aae96b](https://github.com/erviAI/copilot-live-cost-tracker/commit/8aae96bcc3ce9c07a5f15b80bea1b0e605d5441b))
+
 ## [1.7.1](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.7.0...v1.7.1) (2026-08-18)
 
 
