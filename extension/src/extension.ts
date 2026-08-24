@@ -54,7 +54,8 @@ export function activate(context: vscode.ExtensionContext): void {
     stateRepo, // ...and full per-turn prompt/response text (session-store.db)
     // Per-call assistant text. Independent of `costDataSource` — this is display
     // text, not cost data, so the agent-traces-only setting must not suppress it.
-    debugLogsRepo
+    debugLogsRepo,
+    spanRepo // ...and compaction summaries, which only agent-traces.db records
   );
   _trackingService = trackingService;
 
@@ -111,6 +112,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const panel = DashboardPanel.createOrShow(context.extensionUri);
       panel.setRangeSummaryHandler((preset) => trackingService.getRangeSummary(preset));
       panel.setSessionTurnsHandler((sessionId, withResponses) => trackingService.getSessionTurns(sessionId, withResponses));
+      panel.setCompactionSummaryHandler((spanId) => trackingService.getCompactionSummary(spanId));
       const data = trackingService.getLastData();
       if (data) {
         panel.update(data, budgetService.evaluate(data));

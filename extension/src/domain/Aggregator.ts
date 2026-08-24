@@ -1,6 +1,6 @@
-import type { Span, ModelCost, PeriodCost, DailyBucket, SessionInfo, DashboardData, SessionDetailData, TurnCost, ModelDetailBreakdown, SpanDetail, WorkspaceCost, ToolCall, TurnText, ToolCallSpan, ToolUsageStat } from './models.js';
+import type { Span, ModelCost, PeriodCost, DailyBucket, SessionInfo, DashboardData, SessionDetailData, TurnCost, ModelDetailBreakdown, SpanDetail, WorkspaceCost, ToolCall, TurnText, ToolCallSpan, ToolUsageStat, CompactionCost, CompactionCall } from './models.js';
 import { CostCalculator } from './CostCalculator.js';
-import { isIgnoredAgent } from './filters.js';
+import { isCompactionAgent, isIgnoredAgent } from './filters.js';
 import { isSubagentSessionId } from './sessionIds.js';
 import { autoTurnLabel, classifyTurnOrigin } from './turnOrigin.js';
 import { attributeToolCosts, bindToolsToModelCalls, groupToolSpansBySession, toolUsageFromCalls, toolUsageFromSpans } from './toolUsage.js';
@@ -74,6 +74,8 @@ export class Aggregator {
         ? toolUsageFromSpans(toolSpans.filter(t => t.startTimeMs >= fromMs), toolCosts)
         : undefined;
 
+    const compactionCalls = this.buildCompactionCalls(allSpans, sessionTitles);
+
     return {
       today: {
         ...this.aggregatePeriod(todaySpans, sessionWorkspaces),
@@ -98,6 +100,7 @@ export class Aggregator {
       },
       last7Days: this.buildDailyBuckets(allSpans, now),
       recentSessions: this.buildRecentSessions(allSpans, sessionTitles, sessionWorkspaces, 20, toolSpansBySession, toolCosts),
+      compactionCalls: compactionCalls.length > 0 ? compactionCalls : undefined,
       updatedAt: now.toISOString(),
     };
   }
@@ -143,6 +146,11 @@ export class Aggregator {
     };
     const byModel = new Map<string, ModelAcc>();
 
+    const compaction: CompactionCost = {
+      calls: 0, totalCost: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0,
+      cacheWriteTokens: 0, orphanCalls: 0, orphanCost: 0,
+    };
+
     // Workspace accumulator: workspace → { requests, sessionIds, cost }.
     const byWs = new Map<string, { requests: number; sessionIds: Set<string>; totalCost: number }>();
     const traceToSession = buildTraceToSessionMap(spans);
@@ -179,6 +187,19 @@ export class Aggregator {
         existing.unpriced = true;
       }
       byModel.set(model, existing);
+
+      if (isCompactionAgent(span)) {
+        compaction.calls++;
+        compaction.totalCost += cost?.totalCost ?? 0;
+        compaction.inputTokens += span.inputTokens ?? 0;
+        compaction.outputTokens += span.outputTokens ?? 0;
+        compaction.cachedTokens += span.cachedTokens ?? 0;
+        compaction.cacheWriteTokens += cacheWriteTokens;
+        if (span.chatSessionId === null) {
+          compaction.orphanCalls++;
+          compaction.orphanCost += cost?.totalCost ?? 0;
+        }
+      }
 
       // Accumulate per-workspace cost if mapping provided
       if (sessionWorkspaces) {
@@ -243,7 +264,43 @@ export class Aggregator {
       cachedTokens: totalCached,
       byModel: modelCosts.sort((a, b) => b.totalCost - a.totalCost),
       byWorkspace: workspaceCosts,
+      compaction: compaction.calls > 0 ? compaction : undefined,
     };
+  }
+
+  /**
+   * List every conversation-compaction call in the window, newest first.
+   *
+   * Copilot emits most of these with no chat session id, so they never reach
+   * {@link buildRecentSessions}; this is the only place they can be inspected.
+   */
+  buildCompactionCalls(spans: Span[], titles: Map<string, string>): CompactionCall[] {
+    const calls: CompactionCall[] = [];
+    for (const span of spans) {
+      if (!isCompactionAgent(span)) continue;
+      const model = span.responseModel ?? span.requestModel ?? 'unknown';
+      const cacheWriteTokens = this.cacheWriteOf(span, model);
+      const cost = this.calculator.calculate(
+        model, span.inputTokens ?? 0, span.outputTokens ?? 0, span.cachedTokens ?? 0,
+        cacheWriteTokens, span.maxPromptTokens
+      );
+      calls.push({
+        spanId: span.spanId,
+        traceId: span.traceId,
+        startTimeMs: span.startTimeMs,
+        endTimeMs: span.endTimeMs,
+        model,
+        inputTokens: span.inputTokens ?? 0,
+        outputTokens: span.outputTokens ?? 0,
+        cachedTokens: span.cachedTokens ?? 0,
+        cacheWriteTokens,
+        totalCost: cost?.totalCost ?? 0,
+        sessionId: span.chatSessionId,
+        sessionTitle: span.chatSessionId ? (titles.get(span.chatSessionId) ?? null) : null,
+        failed: span.statusCode === 2,
+      });
+    }
+    return calls.sort((a, b) => b.startTimeMs - a.startTimeMs);
   }
 
   /**

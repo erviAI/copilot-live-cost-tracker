@@ -1,5 +1,5 @@
 import Chart from 'chart.js/auto';
-import type { DashboardData, BudgetState, BudgetThresholds, RangeSummary, RangePreset, RecentPrompt, SpanDetail, ToolCall, ToolUsageStat, SessionInfo, TurnCost } from '../domain/models.js';
+import type { DashboardData, BudgetState, BudgetThresholds, RangeSummary, RangePreset, RecentPrompt, SpanDetail, ToolCall, ToolUsageStat, SessionInfo, TurnCost, CompactionCall } from '../domain/models.js';
 import { avgDurationMs, sumToolUsage, totalToolCalls, totalToolCost } from '../domain/toolUsage.js';
 
 /** Minimal shape of the VS Code webview API we use. */
@@ -33,7 +33,12 @@ interface OpenSessionModalMessage {
   sessionId: string;
   traceId?: string;
 }
-type InboundMessage = UpdateMessage | RangeMessage | SessionTurnsMessage | OpenSessionModalMessage;
+interface CompactionSummaryMessage {
+  type: 'compactionSummary';
+  spanId: string;
+  summary: string | null;
+}
+type InboundMessage = UpdateMessage | RangeMessage | SessionTurnsMessage | OpenSessionModalMessage | CompactionSummaryMessage;
 
 const vscode = acquireVsCodeApi();
 
@@ -65,7 +70,7 @@ const MODAL_POLL_MS = 1000;
 let animateNext = true;
 let firstRender = true;
 /** Collapsed state per Activity section id (default: expanded). */
-const collapsed: Record<string, boolean> = { tools: true };
+const collapsed: Record<string, boolean> = { tools: true, compaction: true };
 const subagentCollapsed: Record<string, boolean> = {};
 /** Sessions already fetched with per-call response text, so we ask only once. */
 const sessionResponsesRequested = new Set<string>();
@@ -81,6 +86,11 @@ const toolDetailExpanded: Record<string, boolean> = {};
 const textPanelCollapsed: Record<string, boolean> = {};
 /** Session ids expanded in the Activity table (default: all collapsed). */
 const expandedSessions = new Set<string>();
+/** Compaction rows showing their generated summary, keyed by span id. */
+const compactionExpanded: Record<string, boolean> = {};
+/** Lazily fetched compaction summaries. 'loading' while a fetch is in flight,
+ * null when the span carried no recoverable text. */
+const compactionSummaries: Record<string, string | 'loading' | null> = {};
 /** Per-prompt collapse state inside the session modal (keyed by traceId). */
 const sessionModalTurnCollapsed: Record<string, boolean> = {};
 /** Pending session modal request (from the sidebar) awaiting per-session turn data. */
@@ -143,8 +153,17 @@ window.addEventListener('message', (event: MessageEvent<InboundMessage>) => {
     onSessionTurnsLoaded(msg.sessionId);
   } else if (msg.type === 'openSessionModal') {
     openSessionModal(msg.sessionId, msg.traceId);
+  } else if (msg.type === 'compactionSummary') {
+    compactionSummaries[msg.spanId] = msg.summary;
+    if (activeTab === 'activity') renderActiveTab();
   }
 });
+
+function requestCompactionSummary(spanId: string): void {
+  if (compactionSummaries[spanId] !== undefined) return;
+  compactionSummaries[spanId] = 'loading';
+  vscode.postMessage({ command: 'compactionSummary', spanId });
+}
 
 function requestRange(preset: RangePreset): void {
   selectedRange = preset;
@@ -217,6 +236,15 @@ function setupChrome(): void {
       toggleToolDetail(toolRow.dataset.toolSpanId);
       return;
     }
+    // Compaction row -> expand its generated summary, fetching it on first open.
+    const compactionRow = target.closest('.compaction-row') as HTMLElement | null;
+    if (compactionRow?.dataset.compactionSpanId) {
+      const spanId = compactionRow.dataset.compactionSpanId;
+      compactionExpanded[spanId] = !compactionExpanded[spanId];
+      if (compactionExpanded[spanId]) requestCompactionSummary(spanId);
+      renderActiveTab();
+      return;
+    }
     // Tool table footer -> show the full tool list / collapse back to the top N.
     const toolMore = target.closest('.tool-more') as HTMLElement | null;
     if (toolMore?.dataset.toolkey) {
@@ -286,6 +314,7 @@ const GLOSSARY: Record<string, { title: string; text: string }> = {
   toolCost: { title: 'Tool Cost', text: 'Tools are not billed directly. This is the cost of the model call that requested the tool, split evenly when one call requested several tools. Calls that cannot be tied to a model call count as $0.' },
   reqs: { title: 'Reqs', text: 'Number of model (LLM) calls made while handling this prompt.' },
   hitPct: { title: 'Hit %', text: 'Share of input tokens served from cache (Cache Read ÷ total input). Higher is cheaper.' },
+  compaction: { title: 'Context Compaction', text: 'Model calls Copilot makes to summarise a conversation that has outgrown the context window — what /compact triggers manually. They are billed like any other call and are counted in the period totals. Copilot emits most of them without a chat session id, so they cannot appear in the prompt table above; that is why a period total can exceed the sum of its sessions. Click a row to read the summary that was produced.' },
 };
 
 function infoBadge(key: string): string {
@@ -354,6 +383,11 @@ function todayCacheWrite(): number {
   return data ? data.today.byModel.reduce((sum, m) => sum + m.cacheWriteTokens, 0) : 0;
 }
 
+/** Trailing note for a period card, naming the compaction share of its total. */
+function compactionNote(period: { compaction?: { totalCost: number } }): string {
+  return period.compaction ? ' · incl. ' + formatCost(period.compaction.totalCost) + ' /compact' : '';
+}
+
 function renderCost(panel: HTMLElement): void {
   if (!data) return;
   const d = data;
@@ -362,8 +396,8 @@ function renderCost(panel: HTMLElement): void {
 
   const costCards =
     '<div class="cards">' +
-      statCard('Today', formatCost(d.today.totalCost), d.today.modelTurns + ' turns' + convert(d.today.totalCost), 'today') +
-      statCard('This Week', formatCost(d.thisWeek.totalCost), d.thisWeek.modelTurns + ' turns', 'thisWeek') +
+      statCard('Today', formatCost(d.today.totalCost), d.today.modelTurns + ' turns' + convert(d.today.totalCost) + compactionNote(d.today), 'today') +
+      statCard('This Week', formatCost(d.thisWeek.totalCost), d.thisWeek.modelTurns + ' turns' + compactionNote(d.thisWeek), 'thisWeek') +
       statCard(RANGE_LABELS[selectedRange], rangeCost, r ? r.modelTurns + ' turns' : '', 'range') +
       statCard('Context Weight', formatTokens(d.currentSession.contextWeightTokens), 'latest turn', 'contextWeight') +
     '</div>';
@@ -395,11 +429,15 @@ function renderActivity(panel: HTMLElement): void {
     '</div>';
 
   const promptsBody = '<div id="recent-turns">' + renderRecentTurnsBody() + '</div>';
+  const compactionCalls = d.compactionCalls ?? [];
 
   panel.innerHTML =
     section('tokens', 'Tokens', 'tokens', tokenCards) +
     section('tools', 'Tool Usage', 'toolUsage', renderToolUsageTable(rangeToolUsage(), 'activity')) +
-    section('prompts', 'Cost per User Prompt', 'costPerPrompt', promptsBody);
+    section('prompts', 'Cost per User Prompt', 'costPerPrompt', promptsBody) +
+    (compactionCalls.length > 0
+      ? section('compaction', 'Context Compaction', 'compaction', renderCompactionTable(compactionCalls))
+      : '');
 
   lastTableSig = tableSig();
   ensureExpandedLoaded();
@@ -836,6 +874,53 @@ function renderToolDetail(c: ToolCall): string {
 function renderResponseDetail(text: string): string {
   return '<div class="tool-detail-block"><div class="tool-detail-label">Response</div>' +
     '<pre class="tool-detail-pre">' + escapeHtml(text) + '</pre></div>';
+}
+
+/** The summary a compaction call produced, or its pending/empty placeholder. */
+function renderCompactionDetail(spanId: string): string {
+  const summary = compactionSummaries[spanId];
+  if (summary === 'loading' || summary === undefined) {
+    return '<div class="prompts-muted">Loading summary…</div>';
+  }
+  if (summary === null) return '<div class="prompts-muted">No summary text captured for this call.</div>';
+  return '<div class="tool-detail-block"><div class="tool-detail-label">Summary</div>' +
+    '<pre class="tool-detail-pre">' + escapeHtml(summary) + '</pre></div>';
+}
+
+/** One row per conversation-compaction call, expandable to show its summary. */
+function renderCompactionTable(calls: CompactionCall[]): string {
+  const rows = calls.map(c => {
+    const when = new Date(c.startTimeMs).toLocaleString();
+    const sessionCell = c.sessionId
+      ? escapeHtml(c.sessionTitle ?? c.sessionId.slice(0, 8))
+      : '<span class="origin-badge" title="Copilot emitted this call without a chat session id, so it cannot be attributed to a session">unattributed</span>';
+    const failed = c.failed ? '<span class="origin-badge" title="The request errored or was aborted">failed</span> ' : '';
+    let row =
+      '<tr class="compaction-row clickable" data-compaction-span-id="' + escapeHtml(c.spanId) + '" title="Click to read the generated summary">' +
+        '<td>' + escapeHtml(when) + '</td>' +
+        '<td>' + failed + sessionCell + '</td>' +
+        '<td>' + escapeHtml(shortModel(c.model)) + '</td>' +
+        '<td class="num">' + formatTokens(c.inputTokens) + '</td>' +
+        '<td class="num">' + formatTokens(c.cachedTokens) + '</td>' +
+        '<td class="num">' + formatTokens(c.outputTokens) + '</td>' +
+        '<td class="num">' + formatCost(c.totalCost) + '</td>' +
+      '</tr>';
+    if (compactionExpanded[c.spanId]) {
+      row += '<tr class="span-tools-row"><td colspan="7"><div class="span-tools-wrap">' +
+        renderCompactionDetail(c.spanId) + '</div></td></tr>';
+    }
+    return row;
+  }).join('');
+  return '<table class="detail-table">' +
+    '<thead><tr>' +
+    '<th title="Local start time of the compaction call">Time</th>' +
+    '<th title="The chat session the compaction belonged to, when Copilot recorded one">Session</th>' +
+    '<th>Model</th>' +
+    '<th class="num">In</th>' +
+    '<th class="num" title="Cached tokens read from the prompt cache">Cache Read</th>' +
+    '<th class="num">Out</th>' +
+    '<th class="num">Cost</th></tr></thead>' +
+    '<tbody>' + rows + '</tbody></table>';
 }
 
 /** Collapsible Prompt / Response panels for a turn (full text from session-store.db). */

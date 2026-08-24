@@ -917,13 +917,23 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
       });
     }
 
+    function renderCompactionRow(period) {
+      var c = period.compaction;
+      if (!c) { return ''; }
+      var badge = c.orphanCalls > 0
+        ? ' <span class="est-badge" title="' + c.orphanCalls + ' of these carry no chat session id, so they cannot appear in the session list">not in sessions</span>'
+        : '';
+      return statRow('Compaction (/compact)', formatCost(c.totalCost) + ' (' + c.calls + ')' + badge);
+    }
+
     function renderCostCard(period, level) {
       const colorClass = level === 'limit' ? 'cost-red' : level === 'warning' ? 'cost-yellow' : 'cost-green';
       return '<div class="cost-large ' + colorClass + '"' + costTitle(period.totalCost) + '>' + formatCost(period.totalCost) + '</div>' +
         statRow('Model Turns', period.modelTurns) +
         statRow('Input Tokens', formatTokens(period.inputTokens)) +
         statRow('Output Tokens', formatTokens(period.outputTokens)) +
-        statRow('Cached Tokens', formatTokens(period.cachedTokens));
+        statRow('Cached Tokens', formatTokens(period.cachedTokens)) +
+        renderCompactionRow(period);
     }
 
     function renderCurrentSessionCard(period, level) {

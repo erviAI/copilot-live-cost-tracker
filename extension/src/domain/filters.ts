@@ -22,3 +22,22 @@ export function isIgnoredAgent(span: Span): boolean {
   if (!span.agentName) return false;
   return ignoredSet.has(span.agentName.toLowerCase());
 }
+
+/**
+ * Agent name fragment identifying a conversation-compaction call — the model
+ * request Copilot issues for `/compact` (and automatically when a conversation
+ * outgrows the context window).
+ */
+export const COMPACTION_AGENT_MARKER = 'summarizeconversationhistory';
+
+/**
+ * Returns true if the span is a conversation-compaction call.
+ *
+ * Matched as a substring rather than an exact name: the agent appears both as
+ * `summarizeConversationHistory` and `summarizeConversationHistory-full`, and
+ * Copilot prefixes retried requests (`retry-error-…`, `retry-server-error-…`).
+ */
+export function isCompactionAgent(span: Span): boolean {
+  if (!span.agentName) return false;
+  return span.agentName.toLowerCase().includes(COMPACTION_AGENT_MARKER);
+}

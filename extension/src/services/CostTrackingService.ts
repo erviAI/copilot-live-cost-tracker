@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { ISpanRepository, ISessionTitleResolver, ITurnLabelProvider, IToolCallProvider, ITurnTextProvider, ISpanResponseProvider } from '../data/interfaces.js';
+import type { ISpanRepository, ISessionTitleResolver, ITurnLabelProvider, IToolCallProvider, ITurnTextProvider, ISpanResponseProvider, ICompactionSummaryProvider } from '../data/interfaces.js';
 import type { Span, DashboardData, SessionDetailData, DataSourceStatus, PeriodCost, RangePreset, RangeSummary, RecentPrompt, DailyAggregate, ModelDetailBreakdown, ToolCallSpan } from '../domain/models.js';
 import type { CostDataSource } from '../config.js';
 import type { CostHistoryService } from './CostHistoryService.js';
@@ -45,8 +45,20 @@ export class CostTrackingService implements vscode.Disposable {
     private readonly turnLabelProvider: ITurnLabelProvider | null = null,
     private readonly toolCallProvider: IToolCallProvider | null = null,
     private readonly turnTextProvider: ITurnTextProvider | null = null,
-    private readonly spanResponseProvider: ISpanResponseProvider | null = null
+    private readonly spanResponseProvider: ISpanResponseProvider | null = null,
+    private readonly compactionSummaryProvider: ICompactionSummaryProvider | null = null
   ) {}
+
+  /** Resolve the summary text a conversation-compaction call produced. */
+  async getCompactionSummary(spanId: string): Promise<string | null> {
+    if (!this.compactionSummaryProvider) return null;
+    try {
+      return await this.compactionSummaryProvider.getCompactionSummary(spanId);
+    } catch (err) {
+      logger.warn(`Failed to read compaction summary for span ${spanId}: ${String(err)}`);
+      return null;
+    }
+  }
 
   /** Attach a history service for periodic persistence */
   setHistoryService(service: CostHistoryService, scrapeInterval: number, getRetentionDays?: () => number): void {

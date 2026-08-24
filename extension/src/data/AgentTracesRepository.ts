@@ -1,6 +1,7 @@
 import * as path from 'path';
-import type { ISpanRepository, ITurnLabelProvider, IToolCallProvider } from './interfaces.js';
+import type { ISpanRepository, ITurnLabelProvider, IToolCallProvider, ICompactionSummaryProvider } from './interfaces.js';
 import type { Span, ToolCallSpan } from '../domain/models.js';
+import { extractAssistantText } from './assistantText.js';
 import { openDatabase, type Database } from './sqlite.js';
 
 const AGENT_TRACES_RELATIVE = 'globalStorage/github.copilot-chat/agent-traces.db';
@@ -43,6 +44,12 @@ const SPAN_SELECT_SQL = `
 const MAX_TOOL_RESULT_CHARS = 4000;
 /** Max characters of tool arguments kept (args are normally small JSON). */
 const MAX_TOOL_ARGS_CHARS = 4000;
+/**
+ * Max characters of a compaction summary kept. Far larger than the tool caps:
+ * the summary is the whole point of the row, it is fetched lazily one at a
+ * time, and real ones run to tens of kilobytes.
+ */
+const MAX_COMPACTION_SUMMARY_CHARS = 100_000;
 
 /**
  * SELECT for tool/function (execute_tool) spans. Extends the base span columns
@@ -87,7 +94,7 @@ const TOOL_SPAN_SELECT_SQL = `
  * Reads token/span data from agent-traces.db (OpenTelemetry format).
  * Opens the database read-only; handles WAL via native SQLite.
  */
-export class AgentTracesRepository implements ISpanRepository, ITurnLabelProvider, IToolCallProvider {
+export class AgentTracesRepository implements ISpanRepository, ITurnLabelProvider, IToolCallProvider, ICompactionSummaryProvider {
   private db: Database | null = null;
   private readonly dbPath: string;
 
@@ -279,6 +286,29 @@ export class AgentTracesRepository implements ISpanRepository, ITurnLabelProvide
   dispose(): void {
     this.db?.close();
     this.db = null;
+  }
+  /**
+   * Get the summary text a conversation-compaction call produced.
+   * Read on demand rather than with the span: these run to tens of kilobytes.
+   */
+  async getCompactionSummary(spanId: string): Promise<string | null> {
+    const db = await this.getDb();
+    // Selected whole: truncating the attribute would break the JSON it holds,
+    // so the cap is applied to the extracted text instead.
+    const sql = `
+      SELECT a.value AS value
+      FROM span_attributes a
+      WHERE a.span_id = ?
+        AND a.key = 'gen_ai.output.messages'
+      LIMIT 1
+    `;
+    const row = await db.get<{ value: string }>(sql, [spanId]);
+    if (!row?.value) return null;
+    const text = extractAssistantText(row.value);
+    if (text.length === 0) return null;
+    return text.length > MAX_COMPACTION_SUMMARY_CHARS
+      ? text.slice(0, MAX_COMPACTION_SUMMARY_CHARS) + '…'
+      : text;
   }
 
   /**

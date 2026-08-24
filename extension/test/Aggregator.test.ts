@@ -672,5 +672,120 @@ describe('Aggregator', () => {
       expect(dashboard.recentSessions[0].byTool).toBeUndefined();
     });
   });
+
+  describe('conversation compaction', () => {
+    /** An orphan `/compact` call: Copilot records these with no session id at all. */
+    function compactionSpan(overrides: Partial<Span> = {}): Span {
+      return makeSpan({
+        spanId: 'compact-1',
+        traceId: 'compact-trace-1',
+        agentName: 'summarizeConversationHistory-full',
+        chatSessionId: null,
+        conversationId: null,
+        turnIndex: null,
+        ...overrides,
+      });
+    }
+
+    it('leaves compaction undefined when the period has no compaction calls', () => {
+      const period = aggregator.aggregatePeriod([makeSpan()]);
+
+      expect(period.compaction).toBeUndefined();
+    });
+
+    it('sums calls, tokens and cost across compaction spans', () => {
+      const period = aggregator.aggregatePeriod([
+        makeSpan(),
+        compactionSpan(),
+        compactionSpan({ spanId: 'compact-2', traceId: 'compact-trace-2' }),
+      ]);
+
+      expect(period.compaction?.calls).toBe(2);
+      expect(period.compaction?.inputTokens).toBe(20_000);
+      expect(period.compaction?.outputTokens).toBe(2_000);
+      expect(period.compaction?.cachedTokens).toBe(10_000);
+      expect(period.compaction!.totalCost).toBeGreaterThan(0);
+      // The compaction share can never exceed the period it is drawn from.
+      expect(period.compaction!.totalCost).toBeLessThanOrEqual(period.totalCost);
+    });
+
+    it('counts only session-less calls as orphans', () => {
+      const period = aggregator.aggregatePeriod([
+        compactionSpan(),
+        compactionSpan({
+          spanId: 'compact-2',
+          traceId: 'compact-trace-2',
+          agentName: 'summarizeConversationHistory',
+          chatSessionId: 'session-1',
+          conversationId: 'session-1',
+        }),
+      ]);
+
+      expect(period.compaction?.calls).toBe(2);
+      expect(period.compaction?.orphanCalls).toBe(1);
+      expect(period.compaction!.orphanCost).toBeGreaterThan(0);
+      expect(period.compaction!.orphanCost).toBeLessThan(period.compaction!.totalCost);
+    });
+
+    it('does not produce NaN for an aborted call with no reported tokens', () => {
+      // Real aborted spans arrive with null tokens despite the non-null type.
+      const aborted = compactionSpan({
+        inputTokens: null as unknown as number,
+        outputTokens: null as unknown as number,
+        cachedTokens: null as unknown as number,
+        cacheWriteTokens: null,
+        responseModel: null,
+        statusCode: 2,
+        statusMessage: 'The operation was aborted',
+      });
+
+      const period = aggregator.aggregatePeriod([aborted]);
+
+      expect(period.compaction?.calls).toBe(1);
+      expect(period.compaction?.inputTokens).toBe(0);
+      expect(period.compaction?.outputTokens).toBe(0);
+      expect(Number.isNaN(period.compaction!.totalCost)).toBe(false);
+    });
+
+    it('lists compaction calls newest first, resolving titles only for attributed ones', () => {
+      const calls = aggregator.buildCompactionCalls(
+        [
+          makeSpan(),
+          compactionSpan({ startTimeMs: 1_000 }),
+          compactionSpan({
+            spanId: 'compact-2',
+            traceId: 'compact-trace-2',
+            startTimeMs: 2_000,
+            chatSessionId: 'session-1',
+          }),
+        ],
+        new Map([['session-1', 'Refactor the parser']])
+      );
+
+      expect(calls.map(c => c.spanId)).toEqual(['compact-2', 'compact-1']);
+      expect(calls[0].sessionTitle).toBe('Refactor the parser');
+      expect(calls[1].sessionId).toBeNull();
+      expect(calls[1].sessionTitle).toBeNull();
+    });
+
+    it('flags failed calls and exposes them on the dashboard', () => {
+      const dashboard = aggregator.buildDashboard(
+        [makeSpan(), compactionSpan({ statusCode: 2 })],
+        new Map(),
+        'session-1'
+      );
+
+      expect(dashboard.compactionCalls).toHaveLength(1);
+      expect(dashboard.compactionCalls![0].failed).toBe(true);
+      // Orphans carry no session id, so they must not reach the session list.
+      expect(dashboard.recentSessions.map(s => s.sessionId)).toEqual(['session-1']);
+    });
+
+    it('omits compactionCalls entirely when there were none', () => {
+      const dashboard = aggregator.buildDashboard([makeSpan()], new Map(), 'session-1');
+
+      expect(dashboard.compactionCalls).toBeUndefined();
+    });
+  });
 });
 
