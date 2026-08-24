@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { ISpanRepository, ISessionTitleResolver, ITurnLabelProvider, IToolCallProvider, ITurnTextProvider } from '../data/interfaces.js';
+import type { ISpanRepository, ISessionTitleResolver, ITurnLabelProvider, IToolCallProvider, ITurnTextProvider, ISpanResponseProvider } from '../data/interfaces.js';
 import type { Span, DashboardData, SessionDetailData, DataSourceStatus, PeriodCost, RangePreset, RangeSummary, RecentPrompt, DailyAggregate, ModelDetailBreakdown, TurnText, ToolCallSpan } from '../domain/models.js';
 import type { CostDataSource } from '../config.js';
 import type { CostHistoryService } from './CostHistoryService.js';
@@ -39,7 +39,8 @@ export class CostTrackingService implements vscode.Disposable {
     private readonly getCostDataSource: () => CostDataSource = () => 'agent-traces-only',
     private readonly turnLabelProvider: ITurnLabelProvider | null = null,
     private readonly toolCallProvider: IToolCallProvider | null = null,
-    private readonly turnTextProvider: ITurnTextProvider | null = null
+    private readonly turnTextProvider: ITurnTextProvider | null = null,
+    private readonly spanResponseProvider: ISpanResponseProvider | null = null
   ) {}
 
   /** Attach a history service for periodic persistence */
@@ -190,7 +191,11 @@ export class CostTrackingService implements vscode.Disposable {
       if (this.turnTextProvider) {
         try { turnTexts = await this.turnTextProvider.getTurnTexts(sessionId); } catch { /* ignore */ }
       }
-      return this.aggregator.aggregateSessionDetail(sessionId, spans, turnLabels, toolSpans, turnTexts);
+      let spanResponses: Map<string, string> | undefined;
+      if (this.spanResponseProvider) {
+        try { spanResponses = await this.spanResponseProvider.getSpanResponses(sessionId); } catch { /* ignore */ }
+      }
+      return this.aggregator.aggregateSessionDetail(sessionId, spans, turnLabels, toolSpans, turnTexts, spanResponses);
     } catch (err) {
       logger.error('getSessionDetail error:', err);
       return null;

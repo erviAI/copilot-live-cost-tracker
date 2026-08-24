@@ -384,7 +384,7 @@ export class Aggregator {
     return unbound;
   }
 
-  aggregateSessionDetail(sessionId: string, spans: Span[], turnLabels?: Map<string, string>, toolSpans?: Span[], turnTexts?: Map<number, TurnText>): SessionDetailData {
+  aggregateSessionDetail(sessionId: string, spans: Span[], turnLabels?: Map<string, string>, toolSpans?: Span[], turnTexts?: Map<number, TurnText>, spanResponses?: Map<string, string>): SessionDetailData {
     // --- Tool/function calls grouped by trace (turn) ---
     const toolCallsByTrace = new Map<string, ToolCall[]>();
     for (const s of toolSpans ?? []) {
@@ -465,6 +465,7 @@ export class Aggregator {
             reasoningTokens: s.reasoningTokens,
             totalCost: cost?.totalCost ?? 0, durationMs: s.endTimeMs - s.startTimeMs,
             startTimeMs: s.startTimeMs, operationName: s.operationName, toolName: s.toolName,
+            responseText: spanResponses?.get(s.spanId) ?? null,
           };
         });
         allSubDetails.push(...subSpanDetails);
@@ -504,6 +505,7 @@ export class Aggregator {
           reasoningTokens: s.reasoningTokens,
           totalCost: cost?.totalCost ?? 0, durationMs: s.endTimeMs - s.startTimeMs,
           startTimeMs: s.startTimeMs, operationName: s.operationName, toolName: s.toolName,
+          responseText: spanResponses?.get(s.spanId) ?? null,
         };
       });
 

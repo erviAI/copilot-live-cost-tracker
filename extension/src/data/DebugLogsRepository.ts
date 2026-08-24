@@ -1,9 +1,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
-import type { ISpanRepository } from './interfaces.js';
+import type { ISpanRepository, ISpanResponseProvider } from './interfaces.js';
 import { isSafeSessionId } from './identifiers.js';
 import type { Span } from '../domain/models.js';
+
+/** Prefix Copilot puts on an `agent_response` span id; the rest is the LLM span id. */
+const AGENT_MSG_PREFIX = 'agent-msg-';
+/** Max characters of assistant text kept per call, to bound the webview payload. */
+const MAX_RESPONSE_CHARS = 20000;
 
 /**
  * Reads token data from per-session `main.jsonl` debug logs found under each
@@ -19,10 +24,12 @@ import type { Span } from '../domain/models.js';
  *
  * Per-file caching (path → {mtime, spans}) avoids re-parsing unchanged logs.
  */
-export class DebugLogsRepository implements ISpanRepository {
+export class DebugLogsRepository implements ISpanRepository, ISpanResponseProvider {
   private readonly workspaceStorageRoot: string;
   /** Cache: full main.jsonl path → { mtimeMs, parsed spans } */
   private readonly cache = new Map<string, { mtimeMs: number; spans: Span[] }>();
+  /** Cache: full main.jsonl path → { mtimeMs, spanId → assistant text } */
+  private readonly responseCache = new Map<string, { mtimeMs: number; responses: Map<string, string> }>();
   /** Cache of workspace listing (one-time, refreshed if root mtime changes) */
   private wsListCache: { mtimeMs: number; names: string[] } | null = null;
 
@@ -42,17 +49,8 @@ export class DebugLogsRepository implements ISpanRepository {
   async getSpansForSession(sessionId: string): Promise<Span[]> {
     // sessionId is interpolated into a path below; reject anything unsafe.
     if (!isSafeSessionId(sessionId)) return [];
-    // Find the matching main.jsonl across workspaces. Sessions live under a
-    // single workspace, but we don't know which — scan all.
-    for (const wsName of this.listWorkspaces()) {
-      const file = path.join(
-        this.workspaceStorageRoot, wsName, 'GitHub.copilot-chat', 'debug-logs', sessionId, 'main.jsonl'
-      );
-      if (fs.existsSync(file)) {
-        return this.readSpans(file, sessionId, 0);
-      }
-    }
-    return [];
+    const file = this.findSessionLog(sessionId);
+    return file ? this.readSpans(file, sessionId, 0) : [];
   }
 
   async getSpansSince(timestampMs: number): Promise<Span[]> {
@@ -93,12 +91,41 @@ export class DebugLogsRepository implements ISpanRepository {
     return new Map();
   }
 
+  async getSpanResponses(sessionId: string): Promise<Map<string, string>> {
+    if (!isSafeSessionId(sessionId)) return new Map();
+    const file = this.findSessionLog(sessionId);
+    if (!file) return new Map();
+    try {
+      const stat = fs.statSync(file);
+      const cached = this.responseCache.get(file);
+      if (cached && cached.mtimeMs === stat.mtimeMs) return cached.responses;
+      const responses = await parseAgentResponses(file);
+      this.responseCache.set(file, { mtimeMs: stat.mtimeMs, responses });
+      return responses;
+    } catch {
+      // Debug logs are an optional enhancement; absence just hides the text.
+      return new Map();
+    }
+  }
+
   dispose(): void {
     this.cache.clear();
+    this.responseCache.clear();
     this.wsListCache = null;
   }
 
   // --- internals ---------------------------------------------------------
+
+  /** Locate a session's main.jsonl; sessions live under one unknown workspace. */
+  private findSessionLog(sessionId: string): string | null {
+    for (const wsName of this.listWorkspaces()) {
+      const file = path.join(
+        this.workspaceStorageRoot, wsName, 'GitHub.copilot-chat', 'debug-logs', sessionId, 'main.jsonl'
+      );
+      if (fs.existsSync(file)) return file;
+    }
+    return null;
+  }
 
   private listWorkspaces(): string[] {
     try {
@@ -194,6 +221,64 @@ interface DebugLogEvent {
     model?: unknown;
     ttft?: unknown;
   };
+}
+
+/**
+ * Extract the assistant text each model call produced, keyed by the LLM span id
+ * (which matches `spans.span_id` in agent-traces.db).
+ *
+ * Copilot writes one `agent_response` event per call whose `spanId` is the
+ * producing call's span id prefixed with `agent-msg-`.
+ */
+async function parseAgentResponses(file: string): Promise<Map<string, string>> {
+  const responses = new Map<string, string>();
+  const rl = readline.createInterface({
+    input: fs.createReadStream(file, { encoding: 'utf8' }),
+    crlfDelay: Infinity,
+  });
+  for await (const line of rl) {
+    // Lines embedding a full request payload run to hundreds of KB, so screen
+    // them out with a substring test before paying for JSON.parse. The marker
+    // can also occur inside such a payload, hence the type re-check below.
+    if (!line || !line.includes('"type":"agent_response"')) continue;
+    let ev: { type?: string; spanId?: unknown; attrs?: { response?: unknown } };
+    try { ev = JSON.parse(line); } catch { continue; }
+    if (ev?.type !== 'agent_response') continue;
+    const spanId = typeof ev.spanId === 'string' && ev.spanId.startsWith(AGENT_MSG_PREFIX)
+      ? ev.spanId.slice(AGENT_MSG_PREFIX.length)
+      : null;
+    if (!spanId) continue;
+    const text = extractAssistantText(ev.attrs?.response);
+    if (!text) continue;
+    // A call can emit several messages; keep them all in order.
+    const prev = responses.get(spanId);
+    responses.set(spanId, prev ? cap(prev + '\n\n' + text) : cap(text));
+  }
+  return responses;
+}
+
+/** `attrs.response` is a JSON-encoded array of assistant messages with typed parts. */
+function extractAssistantText(raw: unknown): string {
+  if (typeof raw !== 'string' || raw.length === 0) return '';
+  let messages: unknown;
+  try { messages = JSON.parse(raw); } catch { return ''; }
+  if (!Array.isArray(messages)) return '';
+  const chunks: string[] = [];
+  for (const msg of messages) {
+    const parts = (msg as { parts?: unknown })?.parts;
+    if (!Array.isArray(parts)) continue;
+    for (const part of parts) {
+      const p = part as { type?: unknown; content?: unknown };
+      if (p?.type === 'text' && typeof p.content === 'string' && p.content.length > 0) {
+        chunks.push(p.content);
+      }
+    }
+  }
+  return chunks.join('\n\n').trim();
+}
+
+function cap(text: string): string {
+  return text.length > MAX_RESPONSE_CHARS ? text.slice(0, MAX_RESPONSE_CHARS) + '…' : text;
 }
 
 function numberOrZero(v: unknown): number {

@@ -207,6 +207,8 @@ export interface SpanDetail {
   toolName: string | null;
   /** Tool / function calls this model call requested (bound by agent + time order). */
   toolCalls?: ToolCall[];
+  /** Assistant text this call produced, from the debug log's `agent_response` record. */
+  responseText?: string | null;
 }
 
 /**

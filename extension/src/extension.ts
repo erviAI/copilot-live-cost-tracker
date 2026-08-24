@@ -51,7 +51,10 @@ export function activate(context: vscode.ExtensionContext): void {
     getCostDataSource,
     spanRepo, // AgentTracesRepository also provides per-turn labels
     spanRepo, // ...and tool/function call spans
-    stateRepo // ...and full per-turn prompt/response text (session-store.db)
+    stateRepo, // ...and full per-turn prompt/response text (session-store.db)
+    // Per-call assistant text. Independent of `costDataSource` — this is display
+    // text, not cost data, so the agent-traces-only setting must not suppress it.
+    debugLogsRepo
   );
   _trackingService = trackingService;
 

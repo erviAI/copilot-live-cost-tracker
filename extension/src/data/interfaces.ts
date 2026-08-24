@@ -58,6 +58,17 @@ export interface ITurnTextProvider {
 }
 
 /**
+ * Optional capability for sources that can resolve the assistant text produced
+ * by an individual model call. Copilot's `main.jsonl` debug log records an
+ * `agent_response` event per call, keyed to the LLM span that produced it —
+ * finer-grained than session-store.db, which only stores one blob per turn.
+ */
+export interface ISpanResponseProvider {
+  /** Resolve LLM span id → assistant text produced by that call. */
+  getSpanResponses(sessionId: string): Promise<Map<string, string>>;
+}
+
+/**
  * Interface for resolving session display titles from state.vscdb.
  */
 export interface ISessionTitleResolver {

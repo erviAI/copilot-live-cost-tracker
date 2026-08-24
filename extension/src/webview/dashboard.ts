@@ -67,7 +67,8 @@ let firstRender = true;
 /** Collapsed state per Activity section id (default: expanded). */
 const collapsed: Record<string, boolean> = { tools: true };
 const subagentCollapsed: Record<string, boolean> = {};
-const spanToolsExpanded: Record<string, boolean> = {};
+/** Model-call rows showing their tool calls / response text, keyed by span id. */
+const spanDetailExpanded: Record<string, boolean> = {};
 /** Tool tables showing their full list instead of the top N, keyed by table id. */
 const toolTableExpanded: Record<string, boolean> = {};
 /** Expanded per-prompt tool lists inside the session modal, keyed by traceId. */
@@ -803,11 +804,22 @@ function renderToolDetail(c: ToolCall): string {
   return html || '<div class="prompts-muted">No details captured.</div>';
 }
 
+/** The assistant text a single model call produced. */
+function renderResponseDetail(text: string): string {
+  return '<div class="tool-detail-block"><div class="tool-detail-label">Response</div>' +
+    '<pre class="tool-detail-pre">' + escapeHtml(text) + '</pre></div>';
+}
+
 /** Collapsible Prompt / Response panels for a turn (full text from session-store.db). */
 function renderTurnTextSections(turn: TurnCost): string {
   let html = '';
   if (turn.promptText) html += renderTextPanel('Prompt', turn.promptText, 'prompt#' + turn.traceId, false);
-  if (turn.responseText) html += renderTextPanel('Response', turn.responseText, 'response#' + turn.traceId, true);
+  // The response is shown on the model call that produced it; fall back to the
+  // turn-level blob only when no call carries text (e.g. no debug log).
+  const onRows = (turn.spans ?? []).some(s => s.responseText);
+  if (turn.responseText && !onRows) {
+    html += renderTextPanel('Response', turn.responseText, 'response#' + turn.traceId, true);
+  }
   return html;
 }
 
@@ -854,12 +866,15 @@ function renderSpansTable(spans: SpanDetail[]): string {
     const op = sp.operationName ? escapeHtml(sp.operationName) : '—';
     const tools = sp.toolCalls ?? [];
     const hasTools = tools.length > 0;
-    const expanded = hasTools && spanToolsExpanded[sp.spanId];
+    const hasResponse = !!sp.responseText;
+    const clickable = hasTools || hasResponse;
+    const expanded = clickable && spanDetailExpanded[sp.spanId];
     const toolLabel = tools.length === 1 ? escapeHtml(tools[0].toolName) : String(tools.length) + ' Calls';
-    const toolCell = hasTools
-      ? '<span class="section-chevron">' + (expanded ? '▾' : '▸') + '</span> ' + toolLabel
-      : '—';
-    let row = '<tr' + (hasTools ? ' class="span-row clickable" data-span-id="' + escapeHtml(sp.spanId) + '"' : '') + '>' +
+    const chevron = '<span class="section-chevron">' + (expanded ? '▾' : '▸') + '</span> ';
+    let toolCell = '—';
+    if (hasTools) toolCell = chevron + toolLabel;
+    else if (hasResponse) toolCell = chevron + 'Response';
+    let row = '<tr' + (clickable ? ' class="span-row clickable" data-span-id="' + escapeHtml(sp.spanId) + '"' : '') + '>' +
       '<td title="' + escapeHtml(new Date(sp.startTimeMs).toLocaleString()) + '">' + formatClock(sp.startTimeMs) + '</td>' +
       '<td title="' + escapeHtml(sp.model) + '">' + escapeHtml(shortModel(sp.model)) + '</td>' +
       '<td class="detail-op" title="' + op + '">' + op + '</td>' +
@@ -875,7 +890,9 @@ function renderSpansTable(spans: SpanDetail[]): string {
       '</tr>';
     if (expanded) {
       row += '<tr class="span-tools-row"><td colspan="12"><div class="span-tools-wrap">' +
-        renderToolCallsTable(tools) + '</div></td></tr>';
+        (hasTools ? renderToolCallsTable(tools) : '') +
+        (hasResponse ? renderResponseDetail(sp.responseText as string) : '') +
+        '</div></td></tr>';
     }
     return row;
   }).join('');
@@ -884,7 +901,7 @@ function renderSpansTable(spans: SpanDetail[]): string {
     '<th title="Local start time of the call">Time</th>' +
     '<th>Model</th>' +
     '<th title="The trace operation (e.g. chat, embeddings)">Operation</th>' +
-    '<th title="Tool/function calls this model call made — click a row to expand">Tool Call</th>' +
+    '<th title="Tool/function calls this model call made, and the text it produced — click a row to expand">Tool Call</th>' +
     '<th class="num">In</th>' +
     '<th class="num" title="Cached tokens read from the prompt cache">Cache Read</th>' +
     '<th class="num" title="Tokens written to the prompt cache">Cache Write</th>' +
@@ -977,9 +994,9 @@ function toggleSubagent(key: string): void {
   renderOpenModal();
 }
 
-/** Toggle the nested tool calls under a model-call row. */
+/** Toggle the nested tool calls / response text under a model-call row. */
 function toggleSpanTools(spanId: string): void {
-  spanToolsExpanded[spanId] = !spanToolsExpanded[spanId];
+  spanDetailExpanded[spanId] = !spanDetailExpanded[spanId];
   renderOpenModal();
 }
 
