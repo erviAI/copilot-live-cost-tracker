@@ -89,6 +89,16 @@ export class StatusBarController implements vscode.Disposable {
       `Tokens today: ${formatTokens(data.today.inputTokens)} in / ${formatTokens(data.today.outputTokens)} out / ${formatTokens(data.today.cachedTokens)} cached`,
     ];
 
+    const compaction = data.today.compaction;
+    if (compaction) {
+      const orphanNote = compaction.orphanCalls > 0
+        ? `, ${compaction.orphanCalls} not attributable to a session`
+        : '';
+      lines.push(
+        `Compaction today: ${formatCost(compaction.totalCost)}${converted(compaction.totalCost)} (${compaction.calls} calls${orphanNote})`
+      );
+    }
+
     if (data.currentSession.contextWeightTokens > 0) {
       lines.push(
         ``,

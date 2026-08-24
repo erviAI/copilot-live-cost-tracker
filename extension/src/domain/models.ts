@@ -82,6 +82,45 @@ export interface PeriodCost {
   byWorkspace: WorkspaceCost[];
   /** Tool-call distribution; absent when agent-traces.db is unavailable. */
   byTool?: ToolUsageStat[];
+  /** Conversation-compaction share of this period; absent when there was none. */
+  compaction?: CompactionCost;
+}
+
+/**
+ * Cost of the conversation-compaction (`/compact`) calls within a period.
+ *
+ * The `orphan*` subset covers calls Copilot emits with no chat session id at
+ * all. Those cannot appear in the session list, so they are why a period total
+ * can exceed the sum of the sessions listed under it.
+ */
+export interface CompactionCost {
+  calls: number;
+  totalCost: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  orphanCalls: number;
+  orphanCost: number;
+}
+
+/** A single conversation-compaction model call, for the dashboard's list view. */
+export interface CompactionCall {
+  spanId: string;
+  traceId: string;
+  startTimeMs: number;
+  endTimeMs: number;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  totalCost: number;
+  /** Null when Copilot emitted the call without a chat session id. */
+  sessionId: string | null;
+  sessionTitle: string | null;
+  /** True when the request errored or was aborted (OTel status_code = 2). */
+  failed: boolean;
 }
 
 /** Aggregated usage of a single tool over some scope (range, session, turn). */
@@ -171,6 +210,8 @@ export interface DashboardData {
   };
   last7Days: DailyBucket[];
   recentSessions: SessionInfo[];
+  /** Conversation-compaction calls in the poll window; absent when there were none. */
+  compactionCalls?: CompactionCall[];
   updatedAt: string; // ISO timestamp
   dataSourceStatus?: DataSourceStatus;
   /**

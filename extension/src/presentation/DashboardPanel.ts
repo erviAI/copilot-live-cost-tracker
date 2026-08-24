@@ -19,6 +19,7 @@ export class DashboardPanel {
   private latestBudgetState: BudgetState | null = null;
   private rangeSummaryHandler: ((preset: RangePreset) => Promise<RangeSummary>) | null = null;
   private sessionTurnsHandler: ((sessionId: string, withResponses: boolean) => Promise<RecentPrompt[]>) | null = null;
+  private compactionSummaryHandler: ((spanId: string) => Promise<string | null>) | null = null;
   private pendingSessionModal: { sessionId: string; traceId?: string } | null = null;
 
   private constructor(panel: vscode.WebviewPanel, private readonly extensionUri: vscode.Uri) {
@@ -72,6 +73,11 @@ export class DashboardPanel {
   /** Set the handler invoked when the webview lazily requests one session's per-prompt costs. */
   setSessionTurnsHandler(handler: (sessionId: string, withResponses: boolean) => Promise<RecentPrompt[]>): void {
     this.sessionTurnsHandler = handler;
+  }
+
+  /** Set the handler invoked when the webview lazily requests a compaction summary. */
+  setCompactionSummaryHandler(handler: (spanId: string) => Promise<string | null>): void {
+    this.compactionSummaryHandler = handler;
   }
 
   /** Push new dashboard data to the panel. */
@@ -139,6 +145,14 @@ export class DashboardPanel {
         if (this.sessionTurnsHandler && typeof sessionId === 'string' && sessionId.length > 0) {
           const turns = await this.sessionTurnsHandler(sessionId, withResponses);
           this.panel.webview.postMessage({ type: 'sessionTurns', sessionId, turns });
+        }
+        break;
+      }
+      case 'compactionSummary': {
+        const spanId = (message as { spanId?: unknown }).spanId;
+        if (this.compactionSummaryHandler && typeof spanId === 'string' && spanId.length > 0) {
+          const summary = await this.compactionSummaryHandler(spanId);
+          this.panel.webview.postMessage({ type: 'compactionSummary', spanId, summary });
         }
         break;
       }

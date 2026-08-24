@@ -69,6 +69,16 @@ export interface ISpanResponseProvider {
 }
 
 /**
+ * Optional capability for sources that can resolve the summary produced by a
+ * conversation-compaction call. Only agent-traces.db carries this: Copilot
+ * writes no debug-log record for the `-full` compaction variant.
+ */
+export interface ICompactionSummaryProvider {
+  /** Resolve a compaction span id → the summary text it produced. */
+  getCompactionSummary(spanId: string): Promise<string | null>;
+}
+
+/**
  * Interface for resolving session display titles from state.vscdb.
  */
 export interface ISessionTitleResolver {
