@@ -102,6 +102,13 @@ function formatTokens(count: number): string {
   if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
   return `${count}`;
 }
+function formatAverageTokens(total: number, calls: number): string {
+  return calls > 0 ? formatTokens(Math.round(total / calls)) : '—';
+}
+/** Table cell: total tokens, with the per-LLM-call average in parentheses. */
+function tokensWithAverage(total: number, calls: number): string {
+  return formatTokens(total) + ' <span class="tokens-avg">(' + formatAverageTokens(total, calls) + ')</span>';
+}
 function shortModel(model: string): string {
   return model.length > 28 ? model.slice(0, 27) + '…' : model;
 }
@@ -666,8 +673,8 @@ function renderPromptRow(t: RecentPrompt, sessionId: string): string {
     '<td class="num">' + formatCost(t.totalCost) + '</td>' +
     '<td class="num">' + t.llmCalls + '</td>' +
     '<td class="num">' + countTurnTools(t) + '</td>' +
-    '<td class="num">' + formatTokens(t.inputTokens) + '</td>' +
-    '<td class="num">' + formatTokens(t.outputTokens) + '</td>' +
+    '<td class="num">' + tokensWithAverage(t.inputTokens, t.llmCalls) + '</td>' +
+    '<td class="num">' + tokensWithAverage(t.outputTokens, t.llmCalls) + '</td>' +
     '<td class="num">' + cacheHitPct(t.inputTokens, t.cachedTokens) + '</td>' +
     '</tr>';
 }
@@ -691,8 +698,8 @@ function renderSessionGroup(g: SessionGroup): string {
     '<td class="num">' + formatCost(agg.cost) + '</td>' +
     '<td class="num">' + agg.reqs + '</td>' +
     '<td class="num">' + sessionToolCalls(g) + '</td>' +
-    '<td class="num">' + formatTokens(agg.input) + '</td>' +
-    '<td class="num">' + formatTokens(agg.output) + '</td>' +
+    '<td class="num">' + tokensWithAverage(agg.input, agg.reqs) + '</td>' +
+    '<td class="num">' + tokensWithAverage(agg.output, agg.reqs) + '</td>' +
     '<td class="num">' + cacheHitPct(agg.input, agg.cached) + '</td>' +
     '</tr>';
   if (expanded) {
@@ -715,7 +722,8 @@ function renderRecentTurnsBody(): string {
     '<thead><tr><th>Session</th><th>Prompt</th><th class="num">Cost</th>' +
     '<th class="num">Reqs' + infoBadge('reqs') + '</th>' +
     '<th class="num">Tools' + infoBadge('toolUsage') + '</th>' +
-    '<th class="num">In</th><th class="num">Out</th>' +
+    '<th class="num" title="Input tokens (average per LLM call)">In</th>' +
+    '<th class="num" title="Output tokens (average per LLM call)">Out</th>' +
     '<th class="num">Hit%' + infoBadge('hitPct') + '</th></tr></thead>' +
     '<tbody>' + rows + '</tbody></table>';
 }
@@ -738,7 +746,9 @@ function renderTurnDetailBody(turn: RecentPrompt): string {
           '<span class="detail-child-name">' + escapeHtml(child.agentName || 'subagent') + '</span>' +
           '<span class="detail-child-totals">' + formatCost(child.totalCost) + ' · ' +
             child.llmCalls + ' call(s) · ' + toolCount + ' tool(s) · ' +
-            formatTokens(child.inputTokens) + ' in / ' + formatTokens(child.outputTokens) + ' out</span>' +
+            formatTokens(child.inputTokens) + ' in / ' + formatTokens(child.outputTokens) + ' out · ' +
+            'Avg / call: ' + formatAverageTokens(child.inputTokens, child.llmCalls) + ' in / ' +
+            formatAverageTokens(child.outputTokens, child.llmCalls) + ' out</span>' +
         '</div>' +
         '<div class="detail-child-body' + (isCol ? ' hidden' : '') + '">';
       if (child.spans && child.spans.length > 0) html += renderSpansTable(child.spans);
@@ -962,6 +972,7 @@ function renderSessionModalBody(group: SessionGroup): void {
   let html = '<div class="detail-summary">' + promptCountLabel(agg.count, agg.autoCount) + ' · ' +
     agg.reqs + ' LLM call(s) · ' + sessionTools + ' tool call(s) · ' + formatCost(agg.cost) + ' · ' +
     formatTokens(agg.input) + ' in / ' + formatTokens(agg.output) + ' out · ' +
+    'Avg / call: ' + formatAverageTokens(agg.input, agg.reqs) + ' in / ' + formatAverageTokens(agg.output, agg.reqs) + ' out · ' +
     cacheHitPct(agg.input, agg.cached) + ' cache hit</div>' +
     renderToolUsageSection(sumToolUsage(group.items.map(({ turn }) => turn.byTool)), 'Tool usage', 'session:' + group.sessionId) +
     '<div class="session-prompts">';
@@ -974,6 +985,8 @@ function renderSessionModalBody(group: SessionGroup): void {
         '<span class="session-prompt-totals">' + formatCost(turn.totalCost) + ' · ' + turn.llmCalls + ' call(s) · ' +
           countTurnTools(turn) + ' tool call(s) · ' +
           formatTokens(turn.inputTokens) + ' in / ' + formatTokens(turn.outputTokens) + ' out · ' +
+          'Avg / call: ' + formatAverageTokens(turn.inputTokens, turn.llmCalls) + ' in / ' +
+          formatAverageTokens(turn.outputTokens, turn.llmCalls) + ' out · ' +
           cacheHitPct(turn.inputTokens, turn.cachedTokens) + ' hit</span>' +
       '</div>' +
       renderPromptToolList(turn) +
