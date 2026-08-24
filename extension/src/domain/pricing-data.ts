@@ -16,7 +16,7 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'gpt-5.4-nano': { input: 0.20, output: 1.25, cached: 0.02 },
   'gpt-5.5': { input: 5.00, output: 30.00, cached: 0.50, longContext: { thresholdTokens: 272000, input: 10.00, output: 45.00, cached: 1.00 } },
   'gpt-5.6-luna': { input: 0.20, output: 1.20, cached: 0.02, cacheWrite: 0.25, longContext: { thresholdTokens: 200000, input: 0.40, output: 1.80, cached: 0.04, cacheWrite: 0.50 } },
-  'gpt-5.6-sol': { input: 5.00, output: 30.00, cached: 0.50, cacheWrite: 6.25, longContext: { thresholdTokens: 272000, input: 10.00, output: 45.00, cached: 1.00, cacheWrite: 12.50 } },
+  'gpt-5.6-sol': { input: 2.00, output: 10.00, cached: 0.20, cacheWrite: 2.50, longContext: { thresholdTokens: 272000, input: 4.00, output: 15.00, cached: 0.40, cacheWrite: 5.00 } },
   'gpt-5.6-terra': { input: 2.00, output: 12.00, cached: 0.20, cacheWrite: 2.50, longContext: { thresholdTokens: 272000, input: 4.00, output: 18.00, cached: 0.40, cacheWrite: 5.00 } },
 
   // Anthropic (includes cache write cost)
