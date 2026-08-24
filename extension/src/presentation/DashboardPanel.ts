@@ -18,7 +18,7 @@ export class DashboardPanel {
   private latestData: DashboardData | null = null;
   private latestBudgetState: BudgetState | null = null;
   private rangeSummaryHandler: ((preset: RangePreset) => Promise<RangeSummary>) | null = null;
-  private sessionTurnsHandler: ((sessionId: string) => Promise<RecentPrompt[]>) | null = null;
+  private sessionTurnsHandler: ((sessionId: string, withResponses: boolean) => Promise<RecentPrompt[]>) | null = null;
   private pendingSessionModal: { sessionId: string; traceId?: string } | null = null;
 
   private constructor(panel: vscode.WebviewPanel, private readonly extensionUri: vscode.Uri) {
@@ -70,7 +70,7 @@ export class DashboardPanel {
   }
 
   /** Set the handler invoked when the webview lazily requests one session's per-prompt costs. */
-  setSessionTurnsHandler(handler: (sessionId: string) => Promise<RecentPrompt[]>): void {
+  setSessionTurnsHandler(handler: (sessionId: string, withResponses: boolean) => Promise<RecentPrompt[]>): void {
     this.sessionTurnsHandler = handler;
   }
 
@@ -135,8 +135,9 @@ export class DashboardPanel {
       }
       case 'sessionTurns': {
         const sessionId = (message as { sessionId?: unknown }).sessionId;
+        const withResponses = (message as { withResponses?: unknown }).withResponses === true;
         if (this.sessionTurnsHandler && typeof sessionId === 'string' && sessionId.length > 0) {
-          const turns = await this.sessionTurnsHandler(sessionId);
+          const turns = await this.sessionTurnsHandler(sessionId, withResponses);
           this.panel.webview.postMessage({ type: 'sessionTurns', sessionId, turns });
         }
         break;
@@ -373,6 +374,10 @@ export class DashboardPanel {
     .modal-head button { background: transparent; border: none; color: var(--text-secondary); font-size: 1.1em; cursor: pointer; }
     .modal-head button:hover { color: var(--text-primary, inherit); }
     .modal-body { padding: 14px 16px; overflow-y: auto; }
+    .titles-loading { display: flex; align-items: center; gap: 7px; margin: 0 16px 8px; padding: 6px 10px; font-size: 0.82em; color: var(--text-secondary); background: rgba(127,127,127,0.08); border: 1px solid var(--card-border); border-radius: 4px; }
+    .titles-loading.hidden { display: none; }
+    .titles-loading-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-secondary); animation: titles-pulse 1.1s ease-in-out infinite; }
+    @keyframes titles-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
   </style>
 </head>
 <body>
@@ -391,6 +396,9 @@ export class DashboardPanel {
     <button class="range-btn active" data-range="7d">7 Days</button>
     <button class="range-btn" data-range="30d">30 Days</button>
     <button class="range-btn" data-range="90d">90 Days</button>
+  </div>
+  <div id="titles-loading" class="titles-loading hidden">
+    <span class="titles-loading-dot"></span>Loading session titles… names will fill in shortly.
   </div>
   <div id="panel"><div class="empty">
     <svg class="loading-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

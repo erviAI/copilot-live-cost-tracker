@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import type { ISpanRepository, ISessionTitleResolver, ITurnLabelProvider, IToolCallProvider, ITurnTextProvider } from '../data/interfaces.js';
-import type { Span, DashboardData, SessionDetailData, DataSourceStatus, PeriodCost, RangePreset, RangeSummary, RecentPrompt, DailyAggregate, ModelDetailBreakdown, TurnText, ToolCallSpan } from '../domain/models.js';
+import type { ISpanRepository, ISessionTitleResolver, ITurnLabelProvider, IToolCallProvider, ITurnTextProvider, ISpanResponseProvider } from '../data/interfaces.js';
+import type { Span, DashboardData, SessionDetailData, DataSourceStatus, PeriodCost, RangePreset, RangeSummary, RecentPrompt, DailyAggregate, ModelDetailBreakdown, ToolCallSpan } from '../domain/models.js';
 import type { CostDataSource } from '../config.js';
 import type { CostHistoryService } from './CostHistoryService.js';
 import { Aggregator } from '../domain/Aggregator.js';
@@ -9,6 +9,9 @@ import { bucketSessionsByDay, sessionsToDailyAggregate } from '../domain/dailyAg
 import { isIgnoredAgent } from '../domain/filters.js';
 import { isSubagentSessionId } from '../domain/sessionIds.js';
 import { logger } from '../logger.js';
+
+/** How often session titles may be re-resolved from disk (ms). */
+const TITLE_RESCAN_MS = 60_000;
 
 /**
  * CostTrackingService orchestrates periodic polling of the database
@@ -29,6 +32,8 @@ export class CostTrackingService implements vscode.Disposable {
   private historyService: CostHistoryService | null = null;
   private historyScrapeInterval = 30;
   private getHistoryRetentionDays: () => number = () => 90;
+  private lastTitleScanMs = 0;
+  private paintedOnce = false;
 
   constructor(
     private readonly spanRepo: ISpanRepository,
@@ -39,7 +44,8 @@ export class CostTrackingService implements vscode.Disposable {
     private readonly getCostDataSource: () => CostDataSource = () => 'agent-traces-only',
     private readonly turnLabelProvider: ITurnLabelProvider | null = null,
     private readonly toolCallProvider: IToolCallProvider | null = null,
-    private readonly turnTextProvider: ITurnTextProvider | null = null
+    private readonly turnTextProvider: ITurnTextProvider | null = null,
+    private readonly spanResponseProvider: ISpanResponseProvider | null = null
   ) {}
 
   /** Attach a history service for periodic persistence */
@@ -56,7 +62,9 @@ export class CostTrackingService implements vscode.Disposable {
 
   /** Start the polling loop */
   start(): void {
-    this.poll(); // Immediate first poll
+    // Backfill only after the first poll has painted — it walks the full history
+    // window and would otherwise compete with it for the single sqlite worker.
+    void this.poll().finally(() => { void this.backfillFromDb(); });
     this.scheduleNext();
   }
 
@@ -79,7 +87,7 @@ export class CostTrackingService implements vscode.Disposable {
       const spans = await this.spanRepo.getSpansSince(since);
       if (spans.length === 0) return;
 
-      this.titleResolver.invalidateCache();
+      this.refreshTitlesIfStale();
       const titles = await this.titleResolver.getAllTitles();
       const workspaces = await this.titleResolver.getAllWorkspaces();
       const dayAggregates = this.buildDayAggregates(spans, titles, workspaces, await this.fetchToolStats(since));
@@ -163,8 +171,12 @@ export class CostTrackingService implements vscode.Disposable {
     return buildRangeSummary(preset, history, today, now);
   }
 
-  /** Get detailed breakdown for a specific session (lazy-loaded on expand) */
-  async getSessionDetail(sessionId: string): Promise<SessionDetailData | null> {
+  /**
+   * Get detailed breakdown for a specific session (lazy-loaded on expand).
+   * `includeResponses` additionally reads per-call assistant text from the debug
+   * log — only worth it when a detail modal is actually open.
+   */
+  async getSessionDetail(sessionId: string, includeResponses = false): Promise<SessionDetailData | null> {
     let spans: Span[] = [];
     try {
       spans = await this.spanRepo.getSpansForSession(sessionId);
@@ -177,20 +189,17 @@ export class CostTrackingService implements vscode.Disposable {
       return this.historicSessionDetail(sessionId);
     }
     try {
-      // Fetch turn labels from agent-traces.db (keyed by traceId) when a provider is available.
-      let turnLabels: Map<string, string> | undefined;
-      if (this.turnLabelProvider) {
-        try { turnLabels = await this.turnLabelProvider.getTurnLabels(sessionId); } catch { /* ignore */ }
-      }
-      let toolSpans: Span[] | undefined;
-      if (this.toolCallProvider) {
-        try { toolSpans = await this.toolCallProvider.getToolSpansForSession(sessionId); } catch { /* ignore */ }
-      }
-      let turnTexts: Map<number, TurnText> | undefined;
-      if (this.turnTextProvider) {
-        try { turnTexts = await this.turnTextProvider.getTurnTexts(sessionId); } catch { /* ignore */ }
-      }
-      return this.aggregator.aggregateSessionDetail(sessionId, spans, turnLabels, toolSpans, turnTexts);
+      // Independent best-effort lookups; run them together so the modal waits
+      // on the slowest rather than the sum.
+      const [turnLabels, toolSpans, turnTexts, spanResponses] = await Promise.all([
+        this.turnLabelProvider?.getTurnLabels(sessionId).catch(() => undefined),
+        this.toolCallProvider?.getToolSpansForSession(sessionId).catch(() => undefined),
+        this.turnTextProvider?.getTurnTexts(sessionId).catch(() => undefined),
+        includeResponses
+          ? this.spanResponseProvider?.getSpanResponses(sessionId).catch(() => undefined)
+          : undefined,
+      ]);
+      return this.aggregator.aggregateSessionDetail(sessionId, spans, turnLabels, toolSpans, turnTexts, spanResponses);
     } catch (err) {
       logger.error('getSessionDetail error:', err);
       return null;
@@ -244,11 +253,11 @@ export class CostTrackingService implements vscode.Disposable {
    * demand when a session is expanded in the dashboard Activity table, so we
    * only pay the per-session detail query for sessions the user actually opens.
    */
-  async getSessionTurns(sessionId: string): Promise<RecentPrompt[]> {
+  async getSessionTurns(sessionId: string, includeResponses = false): Promise<RecentPrompt[]> {
     const info = (this.lastData?.recentSessions ?? []).find(s => s.sessionId === sessionId);
     const title = info?.title ?? sessionId;
     try {
-      const detail = await this.getSessionDetail(sessionId);
+      const detail = await this.getSessionDetail(sessionId, includeResponses);
       if (!detail) return [];
       const prompts: RecentPrompt[] = detail.turns.map(turn => ({ ...turn, sessionId, sessionTitle: title }));
       prompts.sort((a, b) => b.startTimeMs - a.startTimeMs);
@@ -264,6 +273,19 @@ export class CostTrackingService implements vscode.Disposable {
     if (this.timer) clearInterval(this.timer);
     const intervalMs = this.getPollingInterval() * 1000;
     this.timer = setInterval(() => this.poll(), intervalMs);
+  }
+
+  /**
+   * Drop the cached session titles at most once per {@link TITLE_RESCAN_MS}.
+   * Resolving them walks every workspace's state.vscdb and debug log, which is
+   * far too costly to repeat on each poll; new titles simply appear a little
+   * later instead.
+   */
+  private refreshTitlesIfStale(): void {
+    const now = Date.now();
+    if (now - this.lastTitleScanMs < TITLE_RESCAN_MS) return;
+    this.lastTitleScanMs = now;
+    this.titleResolver.invalidateCache();
   }
 
   private async poll(): Promise<void> {
@@ -338,8 +360,21 @@ export class CostTrackingService implements vscode.Disposable {
       // Detect current session: most recent activity
       this.currentSessionId = this.detectCurrentSession(spans);
 
+      // First paint shows costs straight away; resolving titles walks every
+      // workspace on disk, so it must not gate the initial render.
+      if (!this.paintedOnce) {
+        this.paintedOnce = true;
+        const provisional = this.aggregator.buildDashboard(
+          spans, new Map(), this.currentSessionId, new Map(), undefined
+        );
+        provisional.dataSourceStatus = dataSourceStatus;
+        provisional.titlesPending = true;
+        this.lastData = provisional;
+        this._onDidUpdate.fire(provisional);
+      }
+
       // Invalidate title cache so new/renamed sessions are picked up
-      this.titleResolver.invalidateCache();
+      this.refreshTitlesIfStale();
       const titles = await this.titleResolver.getAllTitles();
 
       // Fetch workspace names for sessions (populated during title scan)

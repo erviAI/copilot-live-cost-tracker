@@ -173,6 +173,11 @@ export interface DashboardData {
   recentSessions: SessionInfo[];
   updatedAt: string; // ISO timestamp
   dataSourceStatus?: DataSourceStatus;
+  /**
+   * True while session titles are still being resolved from disk. Sessions are
+   * shown with fallback names until the follow-up update arrives.
+   */
+  titlesPending?: boolean;
 }
 
 /** Budget threshold configuration */
@@ -207,6 +212,8 @@ export interface SpanDetail {
   toolName: string | null;
   /** Tool / function calls this model call requested (bound by agent + time order). */
   toolCalls?: ToolCall[];
+  /** Assistant text this call produced, from the debug log's `agent_response` record. */
+  responseText?: string | null;
 }
 
 /**

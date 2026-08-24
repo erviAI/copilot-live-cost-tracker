@@ -51,7 +51,10 @@ export function activate(context: vscode.ExtensionContext): void {
     getCostDataSource,
     spanRepo, // AgentTracesRepository also provides per-turn labels
     spanRepo, // ...and tool/function call spans
-    stateRepo // ...and full per-turn prompt/response text (session-store.db)
+    stateRepo, // ...and full per-turn prompt/response text (session-store.db)
+    // Per-call assistant text. Independent of `costDataSource` — this is display
+    // text, not cost data, so the agent-traces-only setting must not suppress it.
+    debugLogsRepo
   );
   _trackingService = trackingService;
 
@@ -68,9 +71,8 @@ export function activate(context: vscode.ExtensionContext): void {
     historyService.checkRollup();
     // Prune old history files on activation
     historyService.prune();
-    // Backfill durable history from the agent-traces.db window still on disk, so
-    // days recorded while the extension was inactive survive the next DB cleanup.
-    void trackingService.backfillFromDb();
+    // Durable backfill from the agent-traces.db window still on disk runs inside
+    // start(), once the first poll has painted.
   }
 
   // --- Presentation ---
@@ -108,7 +110,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('copilotLiveCostTracker.openDashboard', (args?: unknown) => {
       const panel = DashboardPanel.createOrShow(context.extensionUri);
       panel.setRangeSummaryHandler((preset) => trackingService.getRangeSummary(preset));
-      panel.setSessionTurnsHandler((sessionId) => trackingService.getSessionTurns(sessionId));
+      panel.setSessionTurnsHandler((sessionId, withResponses) => trackingService.getSessionTurns(sessionId, withResponses));
       const data = trackingService.getLastData();
       if (data) {
         panel.update(data, budgetService.evaluate(data));
