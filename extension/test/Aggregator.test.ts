@@ -82,7 +82,7 @@ describe('Aggregator', () => {
     it('prices each request against the long-context threshold individually', () => {
       // Only the first request crosses GPT-5.6 Sol's 272K threshold. Summing the
       // two token counts first would push the combined 400K over the threshold
-      // and wrongly bill both at long-context rates ($2.74 instead of $2.45).
+      // and wrongly bill both at long-context rates ($1.09 instead of $0.975).
       const spans = [
         makeSpan({
           spanId: 'a', responseModel: 'gpt-5.6-sol', maxPromptTokens: 922_000,
@@ -103,9 +103,9 @@ describe('Aggregator', () => {
       expect(sol.calls).toBe(2);
       expect(sol.inputTokens).toBe(400_000);
 
-      // $2.145 (long context) + $0.305 (default) = $2.45
-      expect(sol.totalCost).toBeCloseTo(2.45, 4);
-      expect(result.totalCost).toBeCloseTo(2.45, 4);
+      // $0.855 (long context) + $0.12 (default) = $0.975
+      expect(sol.totalCost).toBeCloseTo(0.975, 4);
+      expect(result.totalCost).toBeCloseTo(0.975, 4);
     });
 
     it('counts the uncached prompt as cache write when the provider reports none', () => {
@@ -119,8 +119,8 @@ describe('Aggregator', () => {
 
       expect(sol.cacheWriteTokens).toBe(221_800);
       expect(sol.freshInputCost).toBe(0);
-      // 221.8k × $6.25/1M + 21.4k × $0.50/1M + 577 × $30/1M
-      expect(sol.totalCost).toBeCloseTo(1.41426, 5);
+      // 221.8k × $2.50/1M + 21.4k × $0.20/1M + 577 × $10/1M
+      expect(sol.totalCost).toBeCloseTo(0.56455, 5);
     });
 
     it('leaves cache write at zero for models that do not bill it', () => {

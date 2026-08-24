@@ -156,10 +156,10 @@ describe('PricingEngine', () => {
       const pricing = engine.resolve('gpt-5.6-sol')!;
       expect(pricing.longContext).toEqual({
         thresholdTokens: 272_000,
-        input: 10.0,
-        output: 45.0,
-        cached: 1.0,
-        cacheWrite: 12.5,
+        input: 4.0,
+        output: 15.0,
+        cached: 0.4,
+        cacheWrite: 5.0,
       });
     });
 
@@ -170,7 +170,7 @@ describe('PricingEngine', () => {
 
     it('preserves the tier through fuzzy version matching', () => {
       const pricing = engine.resolve('gpt-5.6-sol-20260101')!;
-      expect(pricing.input).toBe(5.0);
+      expect(pricing.input).toBe(2.0);
       expect(pricing.longContext?.thresholdTokens).toBe(272_000);
     });
   });

@@ -170,33 +170,33 @@ describe('CostCalculator', () => {
   });
 
   describe('long context tier', () => {
-    // GPT-5.6 Sol default: input=$5, output=$30, cached=$0.50, cacheWrite=$6.25
-    //          long context (> 272K input): input=$10, output=$45, cached=$1.00, cacheWrite=$12.50
+    // GPT-5.6 Sol default: input=$2, output=$10, cached=$0.20, cacheWrite=$2.50
+    //          long context (> 272K input): input=$4, output=$15, cached=$0.40, cacheWrite=$5.00
     const EXTENDED_WINDOW = 922_000;
 
     it('uses default rates when input is below the threshold', () => {
       const r = calculator.calculate('gpt-5.6-sol', 200_000, 1_000, 100_000, 0, EXTENDED_WINDOW)!;
 
-      // Fresh: (200k-100k)=100k × $5/1M = $0.50
-      expect(r.freshInputCost).toBeCloseTo(0.5, 4);
-      // Cache read: 100k × $0.50/1M = $0.05
-      expect(r.cacheReadCost).toBeCloseTo(0.05, 4);
-      // Output: 1k × $30/1M = $0.03
-      expect(r.outputCost).toBeCloseTo(0.03, 4);
-      expect(r.totalCost).toBeCloseTo(0.58, 4);
+      // Fresh: (200k-100k)=100k × $2/1M = $0.20
+      expect(r.freshInputCost).toBeCloseTo(0.2, 4);
+      // Cache read: 100k × $0.20/1M = $0.02
+      expect(r.cacheReadCost).toBeCloseTo(0.02, 4);
+      // Output: 1k × $10/1M = $0.01
+      expect(r.outputCost).toBeCloseTo(0.01, 4);
+      expect(r.totalCost).toBeCloseTo(0.23, 4);
       expect(r.longContext).toBeUndefined();
     });
 
     it('uses long-context rates when input exceeds the threshold', () => {
       const r = calculator.calculate('gpt-5.6-sol', 300_000, 1_000, 100_000, 0, EXTENDED_WINDOW)!;
 
-      // Fresh: (300k-100k)=200k × $10/1M = $2.00
-      expect(r.freshInputCost).toBeCloseTo(2.0, 4);
-      // Cache read: 100k × $1.00/1M = $0.10
-      expect(r.cacheReadCost).toBeCloseTo(0.1, 4);
-      // Output: 1k × $45/1M = $0.045
-      expect(r.outputCost).toBeCloseTo(0.045, 4);
-      expect(r.totalCost).toBeCloseTo(2.145, 4);
+      // Fresh: (300k-100k)=200k × $4/1M = $0.80
+      expect(r.freshInputCost).toBeCloseTo(0.8, 4);
+      // Cache read: 100k × $0.40/1M = $0.04
+      expect(r.cacheReadCost).toBeCloseTo(0.04, 4);
+      // Output: 1k × $15/1M = $0.015
+      expect(r.outputCost).toBeCloseTo(0.015, 4);
+      expect(r.totalCost).toBeCloseTo(0.855, 4);
       expect(r.longContext).toBe(true);
     });
 
@@ -205,24 +205,24 @@ describe('CostCalculator', () => {
       // threshold, so an inflated token count must not price it up.
       const r = calculator.calculate('gpt-5.6-sol', 300_000, 1_000, 100_000, 0, 272_000)!;
 
-      expect(r.totalCost).toBeCloseTo(1.08, 4);
+      expect(r.totalCost).toBeCloseTo(0.43, 4);
       expect(r.longContext).toBeUndefined();
     });
 
     it('falls back to the token count when the prompt budget is unknown', () => {
       const r = calculator.calculate('gpt-5.6-sol', 300_000, 1_000, 100_000, 0, null)!;
 
-      expect(r.totalCost).toBeCloseTo(2.145, 4);
+      expect(r.totalCost).toBeCloseTo(0.855, 4);
       expect(r.longContext).toBe(true);
     });
 
     it('bills cache writes at the long-context rate too', () => {
       const r = calculator.calculate('gpt-5.6-sol', 300_000, 1_000, 100_000, 50_000, EXTENDED_WINDOW)!;
 
-      // Cache write: 50k × $12.50/1M = $0.625
-      expect(r.cacheWriteCost).toBeCloseTo(0.625, 4);
-      // Fresh: (300k - 100k - 50k) = 150k × $10/1M = $1.50
-      expect(r.freshInputCost).toBeCloseTo(1.5, 4);
+      // Cache write: 50k × $5.00/1M = $0.25
+      expect(r.cacheWriteCost).toBeCloseTo(0.25, 4);
+      // Fresh: (300k - 100k - 50k) = 150k × $4/1M = $0.60
+      expect(r.freshInputCost).toBeCloseTo(0.6, 4);
       expect(r.longContext).toBe(true);
     });
 
