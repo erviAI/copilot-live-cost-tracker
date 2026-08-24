@@ -67,6 +67,8 @@ let firstRender = true;
 /** Collapsed state per Activity section id (default: expanded). */
 const collapsed: Record<string, boolean> = { tools: true };
 const subagentCollapsed: Record<string, boolean> = {};
+/** Sessions already fetched with per-call response text, so we ask only once. */
+const sessionResponsesRequested = new Set<string>();
 /** Model-call rows showing their tool calls / response text, keyed by span id. */
 const spanDetailExpanded: Record<string, boolean> = {};
 /** Tool tables showing their full list instead of the top N, keyed by table id. */
@@ -480,12 +482,18 @@ function sessionLoaded(sessionId: string): boolean {
 }
 
 /** Lazily request one session's per-prompt detail. `force` re-fetches loaded data
- * (used by live refreshes) without flipping the row back to a loading state. */
-function requestSessionTurns(sessionId: string, force = false): void {
+ * (used by live refreshes) without flipping the row back to a loading state.
+ * `withResponses` additionally pulls per-call assistant text — only the detail
+ * modals need it, and it costs a debug-log read, so the inline table skips it. */
+function requestSessionTurns(sessionId: string, force = false, withResponses = false): void {
   const state = sessionTurns[sessionId];
-  if (!force && state !== undefined) return; // already loading or loaded
+  // Cached data fetched for the inline table has no response text; a modal
+  // opening over it must re-fetch even though the session is already loaded.
+  const upgrading = withResponses && !sessionResponsesRequested.has(sessionId);
+  if (!force && !upgrading && state !== undefined) return; // already loading or loaded
   if (state === undefined) sessionTurns[sessionId] = 'loading';
-  vscode.postMessage({ command: 'sessionTurns', sessionId });
+  if (withResponses) sessionResponsesRequested.add(sessionId);
+  vscode.postMessage({ command: 'sessionTurns', sessionId, withResponses });
 }
 
 /** Kick off lazy loads for any expanded-but-unloaded sessions after a tab render. */
@@ -505,7 +513,7 @@ function refreshOpenSessionData(): void {
   const ms = openModalSession();
   if (ms) ids.add(ms);
   for (const id of expandedSessions) ids.add(id);
-  for (const id of ids) requestSessionTurns(id, true);
+  for (const id of ids) requestSessionTurns(id, true, id === ms);
 }
 
 /** Handle freshly-loaded session detail: open a pending modal, then refresh the
@@ -1032,7 +1040,7 @@ function startModalPolling(): void {
   stopModalPolling();
   modalPollTimer = setInterval(() => {
     const id = openModalSession();
-    if (id) requestSessionTurns(id, true);
+    if (id) requestSessionTurns(id, true, true);
   }, MODAL_POLL_MS);
 }
 
@@ -1051,6 +1059,7 @@ function openModal(sessionId: string, traceId: string): void {
   openPromptSessionId = sessionId;
   openModalTraceId = traceId;
   renderModalBody(turn);
+  requestSessionTurns(sessionId, false, true);
   lastModalSig = modalSig();
   overlay.classList.remove('hidden');
   startModalPolling();
@@ -1069,9 +1078,10 @@ function openSessionModal(sessionId: string, expandTraceId?: string): void {
   if (sessionLoaded(sessionId)) {
     const group = sessionGroupById(sessionId);
     if (group) renderSessionModalBody(group);
+    requestSessionTurns(sessionId, false, true);
   } else {
     pendingSessionModal = { sessionId, traceId: expandTraceId };
-    requestSessionTurns(sessionId);
+    requestSessionTurns(sessionId, false, true);
     const body = document.getElementById('modal-body');
     const title = document.getElementById('modal-title');
     if (title) title.textContent = sessionInfoFor(sessionId)?.title || 'Session detail';

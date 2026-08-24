@@ -111,7 +111,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('copilotLiveCostTracker.openDashboard', (args?: unknown) => {
       const panel = DashboardPanel.createOrShow(context.extensionUri);
       panel.setRangeSummaryHandler((preset) => trackingService.getRangeSummary(preset));
-      panel.setSessionTurnsHandler((sessionId) => trackingService.getSessionTurns(sessionId));
+      panel.setSessionTurnsHandler((sessionId, withResponses) => trackingService.getSessionTurns(sessionId, withResponses));
       const data = trackingService.getLastData();
       if (data) {
         panel.update(data, budgetService.evaluate(data));

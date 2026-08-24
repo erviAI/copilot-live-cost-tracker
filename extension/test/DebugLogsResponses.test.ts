@@ -123,3 +123,71 @@ describe('DebugLogsRepository.getSpanResponses', () => {
     repo.dispose();
   });
 });
+
+describe('DebugLogsRepository.getSpanResponses incremental reads', () => {
+  const file = () => path.join(logDir, 'main.jsonl');
+  const entry = (id: string, content: string) =>
+    line({ type: 'agent_response', spanId: 'agent-msg-' + id, attrs: { response: response([{ type: 'text', content }]) } });
+
+  it('picks up appended records without re-reading the whole file', async () => {
+    writeLog(entry('one', 'first'));
+    const repo = new DebugLogsRepository(userDir);
+    expect((await repo.getSpanResponses(SESSION)).get('one')).toBe('first');
+
+    fs.appendFileSync(file(), entry('two', 'second'), 'utf8');
+    const after = await repo.getSpanResponses(SESSION);
+    expect(after.get('one')).toBe('first');
+    expect(after.get('two')).toBe('second');
+    repo.dispose();
+  });
+
+  it('resumes mid-line when the log is flushed without a trailing newline', async () => {
+    const partial = entry('split', 'whole record').trimEnd();
+    writeLog(entry('before', 'kept') + partial.slice(0, 40));
+    const repo = new DebugLogsRepository(userDir);
+    const first = await repo.getSpanResponses(SESSION);
+    expect(first.get('before')).toBe('kept');
+    expect(first.has('split')).toBe(false); // incomplete line is not consumed
+
+    fs.appendFileSync(file(), partial.slice(40) + '\n', 'utf8');
+    const second = await repo.getSpanResponses(SESSION);
+    expect(second.get('before')).toBe('kept');
+    expect(second.get('split')).toBe('whole record');
+    repo.dispose();
+  });
+
+  it('keeps byte offsets correct across multi-byte characters', async () => {
+    writeLog(entry('uni', 'héllo — wörld 🎉'));
+    const repo = new DebugLogsRepository(userDir);
+    expect((await repo.getSpanResponses(SESSION)).get('uni')).toBe('héllo — wörld 🎉');
+
+    fs.appendFileSync(file(), entry('next', 'ascii'), 'utf8');
+    const after = await repo.getSpanResponses(SESSION);
+    expect(after.get('uni')).toBe('héllo — wörld 🎉');
+    expect(after.get('next')).toBe('ascii');
+    repo.dispose();
+  });
+
+  it('re-reads from scratch when the log shrinks', async () => {
+    writeLog(entry('old', 'stale') + entry('gone', 'dropped'));
+    const repo = new DebugLogsRepository(userDir);
+    expect((await repo.getSpanResponses(SESSION)).size).toBe(2);
+
+    writeLog(entry('fresh', 'rotated'));
+    const after = await repo.getSpanResponses(SESSION);
+    expect(after.size).toBe(1);
+    expect(after.get('fresh')).toBe('rotated');
+    repo.dispose();
+  });
+
+  it('handles a record split across the stream chunk boundary', async () => {
+    // Far larger than the 64 KB default highWaterMark, so the line spans chunks.
+    writeLog(entry('big', 'y'.repeat(200_000)) + entry('tail', 'last'));
+    const repo = new DebugLogsRepository(userDir);
+    const responses = await repo.getSpanResponses(SESSION);
+    expect(responses.get('big')).toHaveLength(20001);
+    expect(responses.get('tail')).toBe('last');
+    repo.dispose();
+  });
+});
+

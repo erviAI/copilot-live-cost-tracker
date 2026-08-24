@@ -28,8 +28,14 @@ export class DebugLogsRepository implements ISpanRepository, ISpanResponseProvid
   private readonly workspaceStorageRoot: string;
   /** Cache: full main.jsonl path → { mtimeMs, parsed spans } */
   private readonly cache = new Map<string, { mtimeMs: number; spans: Span[] }>();
-  /** Cache: full main.jsonl path → { mtimeMs, spanId → assistant text } */
-  private readonly responseCache = new Map<string, { mtimeMs: number; responses: Map<string, string> }>();
+  /** Cache: full main.jsonl path → parsed responses + how far into the file we got. */
+  private readonly responseCache = new Map<string, {
+    mtimeMs: number;
+    size: number;
+    /** Byte offset just past the last complete line consumed. */
+    offset: number;
+    responses: Map<string, string>;
+  }>();
   /** Cache of workspace listing (one-time, refreshed if root mtime changes) */
   private wsListCache: { mtimeMs: number; names: string[] } | null = null;
 
@@ -98,9 +104,19 @@ export class DebugLogsRepository implements ISpanRepository, ISpanResponseProvid
     try {
       const stat = fs.statSync(file);
       const cached = this.responseCache.get(file);
-      if (cached && cached.mtimeMs === stat.mtimeMs) return cached.responses;
-      const responses = await parseAgentResponses(file);
-      this.responseCache.set(file, { mtimeMs: stat.mtimeMs, responses });
+      if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+        return cached.responses;
+      }
+      // The log is append-only, so a grown file only needs its new bytes read.
+      // Anything else (truncated, rotated, rewritten at the same length) falls
+      // back to a full re-read.
+      const resume = cached !== undefined && stat.size > cached.size;
+      const responses = resume ? cached.responses : new Map<string, string>();
+      const start = resume ? cached.offset : 0;
+      const consumed = await parseAgentResponses(file, start, responses);
+      this.responseCache.set(file, {
+        mtimeMs: stat.mtimeMs, size: stat.size, offset: start + consumed, responses,
+      });
       return responses;
     } catch {
       // Debug logs are an optional enhancement; absence just hides the text.
@@ -224,37 +240,57 @@ interface DebugLogEvent {
 }
 
 /**
- * Extract the assistant text each model call produced, keyed by the LLM span id
- * (which matches `spans.span_id` in agent-traces.db).
+ * Extract the assistant text each model call produced into `into`, keyed by the
+ * LLM span id (which matches `spans.span_id` in agent-traces.db).
  *
  * Copilot writes one `agent_response` event per call whose `spanId` is the
  * producing call's span id prefixed with `agent-msg-`.
+ *
+ * Reads from `startByte` and returns the number of bytes of *complete* lines
+ * consumed, so an append-only log can be resumed instead of re-read. Works on
+ * raw buffers rather than `readline` so that offset stays byte-exact.
  */
-async function parseAgentResponses(file: string): Promise<Map<string, string>> {
-  const responses = new Map<string, string>();
-  const rl = readline.createInterface({
-    input: fs.createReadStream(file, { encoding: 'utf8' }),
-    crlfDelay: Infinity,
-  });
-  for await (const line of rl) {
-    // Lines embedding a full request payload run to hundreds of KB, so screen
-    // them out with a substring test before paying for JSON.parse. The marker
-    // can also occur inside such a payload, hence the type re-check below.
-    if (!line || !line.includes('"type":"agent_response"')) continue;
-    let ev: { type?: string; spanId?: unknown; attrs?: { response?: unknown } };
-    try { ev = JSON.parse(line); } catch { continue; }
-    if (ev?.type !== 'agent_response') continue;
-    const spanId = typeof ev.spanId === 'string' && ev.spanId.startsWith(AGENT_MSG_PREFIX)
-      ? ev.spanId.slice(AGENT_MSG_PREFIX.length)
-      : null;
-    if (!spanId) continue;
-    const text = extractAssistantText(ev.attrs?.response);
-    if (!text) continue;
-    // A call can emit several messages; keep them all in order.
-    const prev = responses.get(spanId);
-    responses.set(spanId, prev ? cap(prev + '\n\n' + text) : cap(text));
+async function parseAgentResponses(
+  file: string,
+  startByte: number,
+  into: Map<string, string>
+): Promise<number> {
+  let consumed = 0;
+  let leftover: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+  const stream = fs.createReadStream(file, { start: startByte });
+  for await (const chunk of stream) {
+    const buf = leftover.length > 0 ? Buffer.concat([leftover, chunk as Buffer]) : (chunk as Buffer);
+    let from = 0;
+    let nl: number;
+    // A newline byte never occurs inside a multi-byte UTF-8 sequence, so every
+    // slice below is a whole, safely decodable line.
+    while ((nl = buf.indexOf(0x0a, from)) !== -1) {
+      consumed += nl - from + 1;
+      handleResponseLine(buf.subarray(from, nl).toString('utf8'), into);
+      from = nl + 1;
+    }
+    leftover = buf.subarray(from);
   }
-  return responses;
+  return consumed;
+}
+
+function handleResponseLine(line: string, into: Map<string, string>): void {
+  // Lines embedding a full request payload run to hundreds of KB, so screen
+  // them out with a substring test before paying for JSON.parse. The marker
+  // can also occur inside such a payload, hence the type re-check below.
+  if (!line || !line.includes('"type":"agent_response"')) return;
+  let ev: { type?: string; spanId?: unknown; attrs?: { response?: unknown } };
+  try { ev = JSON.parse(line); } catch { return; }
+  if (ev?.type !== 'agent_response') return;
+  const spanId = typeof ev.spanId === 'string' && ev.spanId.startsWith(AGENT_MSG_PREFIX)
+    ? ev.spanId.slice(AGENT_MSG_PREFIX.length)
+    : null;
+  if (!spanId) return;
+  const text = extractAssistantText(ev.attrs?.response);
+  if (!text) return;
+  // A call can emit several messages; keep them all in order.
+  const prev = into.get(spanId);
+  into.set(spanId, prev ? cap(prev + '\n\n' + text) : cap(text));
 }
 
 /** `attrs.response` is a JSON-encoded array of assistant messages with typed parts. */

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { ISpanRepository, ISessionTitleResolver, ITurnLabelProvider, IToolCallProvider, ITurnTextProvider, ISpanResponseProvider } from '../data/interfaces.js';
-import type { Span, DashboardData, SessionDetailData, DataSourceStatus, PeriodCost, RangePreset, RangeSummary, RecentPrompt, DailyAggregate, ModelDetailBreakdown, TurnText, ToolCallSpan } from '../domain/models.js';
+import type { Span, DashboardData, SessionDetailData, DataSourceStatus, PeriodCost, RangePreset, RangeSummary, RecentPrompt, DailyAggregate, ModelDetailBreakdown, ToolCallSpan } from '../domain/models.js';
 import type { CostDataSource } from '../config.js';
 import type { CostHistoryService } from './CostHistoryService.js';
 import { Aggregator } from '../domain/Aggregator.js';
@@ -164,8 +164,12 @@ export class CostTrackingService implements vscode.Disposable {
     return buildRangeSummary(preset, history, today, now);
   }
 
-  /** Get detailed breakdown for a specific session (lazy-loaded on expand) */
-  async getSessionDetail(sessionId: string): Promise<SessionDetailData | null> {
+  /**
+   * Get detailed breakdown for a specific session (lazy-loaded on expand).
+   * `includeResponses` additionally reads per-call assistant text from the debug
+   * log — only worth it when a detail modal is actually open.
+   */
+  async getSessionDetail(sessionId: string, includeResponses = false): Promise<SessionDetailData | null> {
     let spans: Span[] = [];
     try {
       spans = await this.spanRepo.getSpansForSession(sessionId);
@@ -178,23 +182,16 @@ export class CostTrackingService implements vscode.Disposable {
       return this.historicSessionDetail(sessionId);
     }
     try {
-      // Fetch turn labels from agent-traces.db (keyed by traceId) when a provider is available.
-      let turnLabels: Map<string, string> | undefined;
-      if (this.turnLabelProvider) {
-        try { turnLabels = await this.turnLabelProvider.getTurnLabels(sessionId); } catch { /* ignore */ }
-      }
-      let toolSpans: Span[] | undefined;
-      if (this.toolCallProvider) {
-        try { toolSpans = await this.toolCallProvider.getToolSpansForSession(sessionId); } catch { /* ignore */ }
-      }
-      let turnTexts: Map<number, TurnText> | undefined;
-      if (this.turnTextProvider) {
-        try { turnTexts = await this.turnTextProvider.getTurnTexts(sessionId); } catch { /* ignore */ }
-      }
-      let spanResponses: Map<string, string> | undefined;
-      if (this.spanResponseProvider) {
-        try { spanResponses = await this.spanResponseProvider.getSpanResponses(sessionId); } catch { /* ignore */ }
-      }
+      // Independent best-effort lookups; run them together so the modal waits
+      // on the slowest rather than the sum.
+      const [turnLabels, toolSpans, turnTexts, spanResponses] = await Promise.all([
+        this.turnLabelProvider?.getTurnLabels(sessionId).catch(() => undefined),
+        this.toolCallProvider?.getToolSpansForSession(sessionId).catch(() => undefined),
+        this.turnTextProvider?.getTurnTexts(sessionId).catch(() => undefined),
+        includeResponses
+          ? this.spanResponseProvider?.getSpanResponses(sessionId).catch(() => undefined)
+          : undefined,
+      ]);
       return this.aggregator.aggregateSessionDetail(sessionId, spans, turnLabels, toolSpans, turnTexts, spanResponses);
     } catch (err) {
       logger.error('getSessionDetail error:', err);
@@ -249,11 +246,11 @@ export class CostTrackingService implements vscode.Disposable {
    * demand when a session is expanded in the dashboard Activity table, so we
    * only pay the per-session detail query for sessions the user actually opens.
    */
-  async getSessionTurns(sessionId: string): Promise<RecentPrompt[]> {
+  async getSessionTurns(sessionId: string, includeResponses = false): Promise<RecentPrompt[]> {
     const info = (this.lastData?.recentSessions ?? []).find(s => s.sessionId === sessionId);
     const title = info?.title ?? sessionId;
     try {
-      const detail = await this.getSessionDetail(sessionId);
+      const detail = await this.getSessionDetail(sessionId, includeResponses);
       if (!detail) return [];
       const prompts: RecentPrompt[] = detail.turns.map(turn => ({ ...turn, sessionId, sessionTitle: title }));
       prompts.sort((a, b) => b.startTimeMs - a.startTimeMs);
