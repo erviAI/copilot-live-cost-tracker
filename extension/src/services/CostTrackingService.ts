@@ -10,6 +10,9 @@ import { isIgnoredAgent } from '../domain/filters.js';
 import { isSubagentSessionId } from '../domain/sessionIds.js';
 import { logger } from '../logger.js';
 
+/** How often session titles may be re-resolved from disk (ms). */
+const TITLE_RESCAN_MS = 60_000;
+
 /**
  * CostTrackingService orchestrates periodic polling of the database
  * and emits dashboard data updates to subscribers.
@@ -29,6 +32,8 @@ export class CostTrackingService implements vscode.Disposable {
   private historyService: CostHistoryService | null = null;
   private historyScrapeInterval = 30;
   private getHistoryRetentionDays: () => number = () => 90;
+  private lastTitleScanMs = 0;
+  private paintedOnce = false;
 
   constructor(
     private readonly spanRepo: ISpanRepository,
@@ -57,7 +62,9 @@ export class CostTrackingService implements vscode.Disposable {
 
   /** Start the polling loop */
   start(): void {
-    this.poll(); // Immediate first poll
+    // Backfill only after the first poll has painted — it walks the full history
+    // window and would otherwise compete with it for the single sqlite worker.
+    void this.poll().finally(() => { void this.backfillFromDb(); });
     this.scheduleNext();
   }
 
@@ -80,7 +87,7 @@ export class CostTrackingService implements vscode.Disposable {
       const spans = await this.spanRepo.getSpansSince(since);
       if (spans.length === 0) return;
 
-      this.titleResolver.invalidateCache();
+      this.refreshTitlesIfStale();
       const titles = await this.titleResolver.getAllTitles();
       const workspaces = await this.titleResolver.getAllWorkspaces();
       const dayAggregates = this.buildDayAggregates(spans, titles, workspaces, await this.fetchToolStats(since));
@@ -268,6 +275,19 @@ export class CostTrackingService implements vscode.Disposable {
     this.timer = setInterval(() => this.poll(), intervalMs);
   }
 
+  /**
+   * Drop the cached session titles at most once per {@link TITLE_RESCAN_MS}.
+   * Resolving them walks every workspace's state.vscdb and debug log, which is
+   * far too costly to repeat on each poll; new titles simply appear a little
+   * later instead.
+   */
+  private refreshTitlesIfStale(): void {
+    const now = Date.now();
+    if (now - this.lastTitleScanMs < TITLE_RESCAN_MS) return;
+    this.lastTitleScanMs = now;
+    this.titleResolver.invalidateCache();
+  }
+
   private async poll(): Promise<void> {
     if (this.disposed) return;
     if (this.polling) return; // Skip if a previous poll is still in flight
@@ -340,8 +360,20 @@ export class CostTrackingService implements vscode.Disposable {
       // Detect current session: most recent activity
       this.currentSessionId = this.detectCurrentSession(spans);
 
+      // First paint shows costs straight away; resolving titles walks every
+      // workspace on disk, so it must not gate the initial render.
+      if (!this.paintedOnce) {
+        this.paintedOnce = true;
+        const provisional = this.aggregator.buildDashboard(
+          spans, new Map(), this.currentSessionId, new Map(), undefined
+        );
+        provisional.dataSourceStatus = dataSourceStatus;
+        this.lastData = provisional;
+        this._onDidUpdate.fire(provisional);
+      }
+
       // Invalidate title cache so new/renamed sessions are picked up
-      this.titleResolver.invalidateCache();
+      this.refreshTitlesIfStale();
       const titles = await this.titleResolver.getAllTitles();
 
       // Fetch workspace names for sessions (populated during title scan)

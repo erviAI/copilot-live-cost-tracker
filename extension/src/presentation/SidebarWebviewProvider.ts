@@ -771,7 +771,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider, vscod
       }
 
       if (!data || (data.today.modelTurns === 0 && data.thisWeek.modelTurns === 0)) {
-        var emptyHtml = bannerHtml + '<div class="empty-state">No Copilot usage data found yet.</div>';
+        var placeholder = data ? 'No Copilot usage data found yet.' : 'Loading Copilot usage…';
+        var emptyHtml = bannerHtml + '<div class="empty-state">' + placeholder + '</div>';
         if (emptyHtml !== lastRenderSig) {
           content.innerHTML = emptyHtml;
           lastRenderSig = emptyHtml;

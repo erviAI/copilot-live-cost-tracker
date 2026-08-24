@@ -291,7 +291,12 @@ function renderActiveTab(): void {
   const panel = document.getElementById('panel');
   if (!panel) return;
 
-  if (!data || (data.today.modelTurns === 0 && data.thisWeek.modelTurns === 0)) {
+  if (!data) {
+    destroyAllCharts();
+    panel.innerHTML = '<div class="empty">Loading Copilot usage…</div>';
+    return;
+  }
+  if (data.today.modelTurns === 0 && data.thisWeek.modelTurns === 0) {
     destroyAllCharts();
     panel.innerHTML = '<div class="empty">No Copilot usage data found yet.</div>';
     return;

@@ -71,9 +71,8 @@ export function activate(context: vscode.ExtensionContext): void {
     historyService.checkRollup();
     // Prune old history files on activation
     historyService.prune();
-    // Backfill durable history from the agent-traces.db window still on disk, so
-    // days recorded while the extension was inactive survive the next DB cleanup.
-    void trackingService.backfillFromDb();
+    // Durable backfill from the agent-traces.db window still on disk runs inside
+    // start(), once the first poll has painted.
   }
 
   // --- Presentation ---
