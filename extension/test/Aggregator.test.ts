@@ -3,6 +3,7 @@ import { Aggregator } from '../src/domain/Aggregator.js';
 import { CostCalculator } from '../src/domain/CostCalculator.js';
 import { PricingEngine } from '../src/domain/PricingEngine.js';
 import type { Span } from '../src/domain/models.js';
+import { TEST_PRICING } from './mocks/pricing.js';
 
 function makeSpan(overrides: Partial<Span> = {}): Span {
   return {
@@ -33,7 +34,7 @@ function makeSpan(overrides: Partial<Span> = {}): Span {
 }
 
 describe('Aggregator', () => {
-  const engine = new PricingEngine();
+  const engine = new PricingEngine(TEST_PRICING);
   const calculator = new CostCalculator(engine);
   const aggregator = new Aggregator(calculator);
 
@@ -80,16 +81,13 @@ describe('Aggregator', () => {
     });
 
     it('prices each request against the long-context threshold individually', () => {
-      // Only the first request crosses GPT-5.6 Sol's 272K threshold. Summing the
-      // two token counts first would push the combined 400K over the threshold
-      // and wrongly bill both at long-context rates ($1.09 instead of $0.975).
       const spans = [
         makeSpan({
-          spanId: 'a', responseModel: 'gpt-5.6-sol', maxPromptTokens: 922_000,
+          spanId: 'a', responseModel: 'test-tiered', maxPromptTokens: 922_000,
           inputTokens: 300_000, cachedTokens: 100_000, outputTokens: 1_000, cacheWriteTokens: 0,
         }),
         makeSpan({
-          spanId: 'b', responseModel: 'gpt-5.6-sol', maxPromptTokens: 922_000,
+          spanId: 'b', responseModel: 'test-tiered', maxPromptTokens: 922_000,
           inputTokens: 100_000, cachedTokens: 50_000, outputTokens: 1_000, cacheWriteTokens: 0,
         }),
       ];
@@ -98,33 +96,32 @@ describe('Aggregator', () => {
 
       // Folded into a single row for the model.
       expect(result.byModel).toHaveLength(1);
-      const sol = result.byModel[0];
-      expect(sol.model).toBe('gpt-5.6-sol');
-      expect(sol.calls).toBe(2);
-      expect(sol.inputTokens).toBe(400_000);
+      const model = result.byModel[0];
+      expect(model.model).toBe('test-tiered');
+      expect(model.calls).toBe(2);
+      expect(model.inputTokens).toBe(400_000);
 
       // $0.855 (long context) + $0.12 (default) = $0.975
-      expect(sol.totalCost).toBeCloseTo(0.975, 4);
+      expect(model.totalCost).toBeCloseTo(0.975, 4);
       expect(result.totalCost).toBeCloseTo(0.975, 4);
     });
 
     it('counts the uncached prompt as cache write when the provider reports none', () => {
-      // gpt-5.6-sol bills cache writes but omits cache_creation_input_tokens.
       const span = makeSpan({
-        responseModel: 'gpt-5.6-sol',
+        responseModel: 'test-tiered',
         inputTokens: 243_200, cachedTokens: 21_400, outputTokens: 577, cacheWriteTokens: null,
       });
 
-      const sol = aggregator.aggregatePeriod([span]).byModel[0];
+      const model = aggregator.aggregatePeriod([span]).byModel[0];
 
-      expect(sol.cacheWriteTokens).toBe(221_800);
-      expect(sol.freshInputCost).toBe(0);
+      expect(model.cacheWriteTokens).toBe(221_800);
+      expect(model.freshInputCost).toBe(0);
       // 221.8k × $2.50/1M + 21.4k × $0.20/1M + 577 × $10/1M
-      expect(sol.totalCost).toBeCloseTo(0.56455, 5);
+      expect(model.totalCost).toBeCloseTo(0.56455, 5);
     });
 
     it('leaves cache write at zero for models that do not bill it', () => {
-      const span = makeSpan({ responseModel: 'gpt-4.1', cacheWriteTokens: null });
+      const span = makeSpan({ responseModel: 'test-readonly', cacheWriteTokens: null });
 
       expect(aggregator.aggregatePeriod([span]).byModel[0].cacheWriteTokens).toBe(0);
     });

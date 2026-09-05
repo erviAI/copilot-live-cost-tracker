@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PricingEngine } from '../src/domain/PricingEngine.js';
+import { TEST_PRICING } from './mocks/pricing.js';
 
 describe('PricingEngine', () => {
   const engine = new PricingEngine();
@@ -152,8 +153,10 @@ describe('PricingEngine', () => {
   });
 
   describe('long context tier', () => {
-    it('exposes the published overflow tier for tiered models', () => {
-      const pricing = engine.resolve('gpt-5.6-sol')!;
+    const engine = new PricingEngine(TEST_PRICING);
+
+    it('exposes the configured overflow tier for tiered models', () => {
+      const pricing = engine.resolve('test-tiered')!;
       expect(pricing.longContext).toEqual({
         thresholdTokens: 272_000,
         input: 4.0,
@@ -164,12 +167,12 @@ describe('PricingEngine', () => {
     });
 
     it('omits the tier for flat-priced models', () => {
-      expect(engine.resolve('claude-opus-5')!.longContext).toBeUndefined();
-      expect(engine.resolve('gpt-5-mini')!.longContext).toBeUndefined();
+      expect(engine.resolve('test-flat')!.longContext).toBeUndefined();
+      expect(engine.resolve('test-readonly')!.longContext).toBeUndefined();
     });
 
     it('preserves the tier through fuzzy version matching', () => {
-      const pricing = engine.resolve('gpt-5.6-sol-20260101')!;
+      const pricing = engine.resolve('test-tiered-20260101')!;
       expect(pricing.input).toBe(2.0);
       expect(pricing.longContext?.thresholdTokens).toBe(272_000);
     });
