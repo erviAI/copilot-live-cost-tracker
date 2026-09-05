@@ -60,6 +60,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Use minimum-supported VS Code types
+        run: npm install --save-dev --save-exact --ignore-scripts @types/vscode@1.125.0
+
+      - name: Check compatibility
+        run: npm run typecheck
+
       - name: Build
         run: npm run build
 
