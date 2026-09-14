@@ -43,7 +43,6 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'grok-4.6': { input: 2.00, output: 6.00, cached: 0.50, longContext: { thresholdTokens: 200000, input: 4.00, output: 12.00, cached: 1.00 } },
 
   // microsoft
-  'mai-code-1-flash': { input: 0.75, output: 4.50, cached: 0.075 },
   'mai-code-1.1-flash': { input: 0.20, output: 1.20, cached: 0.02 },
 
   // moonshot_ai
@@ -69,4 +68,5 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'claude-opus-4-6': { input: 5.00, output: 25.00, cached: 0.50, cacheWrite: 6.25 },
   'gemini-3.1-pro': { input: 2.00, output: 12.00, cached: 0.20, longContext: { thresholdTokens: 200000, input: 4.00, output: 18.00, cached: 0.40 } },
   'raptor-mini': { input: 0.25, output: 2.00, cached: 0.025 },
+  'mai-code-1-flash': { input: 0.75, output: 4.50, cached: 0.075 },
 };
