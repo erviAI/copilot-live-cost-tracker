@@ -82,43 +82,44 @@ describe('PricingEngine', () => {
   });
 
   describe('family fallback (estimated pricing)', () => {
-    // These use a far-future Opus version (9-x) that the auto-generated
-    // pricing table is not expected to contain. Do NOT use a near-future
-    // version (e.g. the next 4-x): the weekly pricing updater would add it as
-    // a real model and turn these into exact matches, breaking the test.
-    it('prices a brand-new claude-opus-9-9 from the latest known Opus', () => {
-      const pricing = engine.resolve('claude-opus-9-9');
+    const engine = new PricingEngine({
+      'test-family-2': { input: 3, output: 15, cached: 0.3, cacheWrite: 3.75 },
+      'test-family-10': { input: 5, output: 25, cached: 0.5, cacheWrite: 6.25 },
+      'test-family-99-(fast-mode)': { input: 10, output: 50, cached: 1, cacheWrite: 12.5 },
+      'test-other-20': { input: 2, output: 8, cached: 0.5 },
+    });
+
+    it('prices an unknown version from the latest known family member', () => {
+      const pricing = engine.resolve('test-family-50-1');
       expect(pricing).not.toBeNull();
       expect(pricing!.estimated).toBe(true);
-      // Inherits Claude Opus rates (input 5 / output 25 / cacheWrite 6.25)
       expect(pricing!.input).toBe(5.00);
       expect(pricing!.output).toBe(25.00);
+      expect(pricing!.cached).toBe(0.50);
       expect(pricing!.cacheWrite).toBe(6.25);
     });
 
-    it('accepts dotted form claude-opus-9.9 too', () => {
-      const pricing = engine.resolve('claude-opus-9.9');
+    it('accepts dotted version numbers too', () => {
+      const pricing = engine.resolve('test-family-50.1');
       expect(pricing).not.toBeNull();
       expect(pricing!.estimated).toBe(true);
       expect(pricing!.output).toBe(25.00);
     });
 
     it('picks the highest known version within the family', () => {
-      // All known Opus rates are equal here, so assert it stays within the
-      // family (Opus) and is flagged estimated rather than matching Sonnet.
-      const pricing = engine.resolve('claude-opus-9-1');
-      expect(pricing!.estimated).toBe(true);
-      expect(pricing!.input).toBe(5.00); // Opus, not Sonnet (3.00)
+      const pricing = engine.resolve('test-family-50');
+      expect(pricing).toEqual({
+        input: 5, output: 25, cached: 0.5, cacheWrite: 6.25, estimated: true,
+      });
     });
 
     it('does not flag exact matches as estimated', () => {
-      const pricing = engine.resolve('claude-opus-4-5');
+      const pricing = engine.resolve('test-family-2');
       expect(pricing!.estimated).toBeUndefined();
     });
 
-    it('does not fall back across unrelated providers', () => {
-      // Only one shared leading segment ("mistral" shares nothing known) → null.
-      const pricing = engine.resolve('mistral-large-2');
+    it('does not fall back across unrelated families sharing only a provider', () => {
+      const pricing = engine.resolve('test-unrelated-2');
       expect(pricing).toBeNull();
     });
   });
