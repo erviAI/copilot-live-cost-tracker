@@ -19,6 +19,8 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'gpt-5.6-sol': { input: 4.00, output: 20.00, cached: 0.40, cacheWrite: 5.00, longContext: { thresholdTokens: 272000, input: 8.00, output: 30.00, cached: 0.80, cacheWrite: 10.00 } },
   'gpt-5.6-terra': { input: 2.00, output: 12.00, cached: 0.20, cacheWrite: 2.50, longContext: { thresholdTokens: 272000, input: 4.00, output: 18.00, cached: 0.40, cacheWrite: 5.00 } },
   'gpt-6-astra': { input: 10.00, output: 50.00, cached: 1.00, cacheWrite: 12.50, longContext: { thresholdTokens: 272000, input: 20.00, output: 75.00, cached: 2.00, cacheWrite: 25.00 } },
+  'gpt-6-luna': { input: 0.10, output: 0.50, cached: 0.01, cacheWrite: 0.125, longContext: { thresholdTokens: 272000, input: 0.20, output: 0.75, cached: 0.02, cacheWrite: 0.25 } },
+  'gpt-6-sol': { input: 2.00, output: 10.00, cached: 0.20, cacheWrite: 2.50, longContext: { thresholdTokens: 272000, input: 4.00, output: 15.00, cached: 0.40, cacheWrite: 5.00 } },
 
   // Anthropic (includes cache write cost)
   'claude-haiku-4-5': { input: 1.00, output: 5.00, cached: 0.10, cacheWrite: 1.25 },
@@ -27,6 +29,7 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'claude-opus-4-7': { input: 5.00, output: 25.00, cached: 0.50, cacheWrite: 6.25 },
   'claude-opus-4-8': { input: 5.00, output: 25.00, cached: 0.50, cacheWrite: 6.25 },
   'claude-opus-5': { input: 5.00, output: 25.00, cached: 0.50, cacheWrite: 6.25 },
+  'claude-opus-5-5': { input: 4.00, output: 20.00, cached: 0.20, cacheWrite: 5.00 },
   'claude-sonnet-5': { input: 2.00, output: 10.00, cached: 0.20, cacheWrite: 2.50 },
   'claude-opus-4-8-(fast-mode)-(preview)': { input: 10.00, output: 50.00, cached: 1.00, cacheWrite: 12.50 },
   'claude-fable-5': { input: 10.00, output: 50.00, cached: 1.00, cacheWrite: 12.50 },
@@ -41,9 +44,9 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   // xAI
   'grok-4.5': { input: 2.00, output: 6.00, cached: 0.50, longContext: { thresholdTokens: 200000, input: 4.00, output: 12.00, cached: 1.00 } },
   'grok-4.6': { input: 2.00, output: 6.00, cached: 0.50, longContext: { thresholdTokens: 200000, input: 4.00, output: 12.00, cached: 1.00 } },
+  'grok-4.7': { input: 2.00, output: 6.00, cached: 0.50, longContext: { thresholdTokens: 200000, input: 4.00, output: 12.00, cached: 1.00 } },
 
   // microsoft
-  'mai-code-1-flash': { input: 0.75, output: 4.50, cached: 0.075 },
   'mai-code-1.1-flash': { input: 0.20, output: 1.20, cached: 0.02 },
 
   // moonshot_ai
@@ -69,4 +72,5 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'claude-opus-4-6': { input: 5.00, output: 25.00, cached: 0.50, cacheWrite: 6.25 },
   'gemini-3.1-pro': { input: 2.00, output: 12.00, cached: 0.20, longContext: { thresholdTokens: 200000, input: 4.00, output: 18.00, cached: 0.40 } },
   'raptor-mini': { input: 0.25, output: 2.00, cached: 0.025 },
+  'mai-code-1-flash': { input: 0.75, output: 4.50, cached: 0.075 },
 };
