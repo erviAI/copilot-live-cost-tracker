@@ -27,7 +27,6 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'claude-haiku-4-5': { input: 1.00, output: 5.00, cached: 0.10, cacheWrite: 1.25 },
   'claude-sonnet-4': { input: 3.00, output: 15.00, cached: 0.30, cacheWrite: 3.75 },
   'claude-sonnet-4-6': { input: 3.00, output: 15.00, cached: 0.30, cacheWrite: 3.75 },
-  'claude-opus-4-7': { input: 5.00, output: 25.00, cached: 0.50, cacheWrite: 6.25 },
   'claude-opus-4-8': { input: 5.00, output: 25.00, cached: 0.50, cacheWrite: 6.25 },
   'claude-opus-5': { input: 5.00, output: 25.00, cached: 0.50, cacheWrite: 6.25 },
   'claude-opus-5-5': { input: 4.00, output: 20.00, cached: 0.20, cacheWrite: 5.00 },
@@ -38,8 +37,6 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'claude-fable-5-1': { input: 10.00, output: 50.00, cached: 0.25, cacheWrite: 12.50 },
 
   // Google
-  'gemini-3.5-flash': { input: 1.50, output: 9.00, cached: 0.15 },
-  'gemini-3.6-flash': { input: 0.75, output: 3.75, cached: 0.075 },
   'gemini-3.7-flash': { input: 0.75, output: 3.75, cached: 0.075 },
   'gemini-3.8-flash': { input: 0.75, output: 3.75, cached: 0.075 },
 
@@ -52,7 +49,6 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'mai-code-1.1-flash': { input: 0.20, output: 1.20, cached: 0.02 },
 
   // moonshot_ai
-  'kimi-k2.7-code': { input: 0.95, output: 4.00, cached: 0.19 },
   'kimi-k3': { input: 3.00, output: 15.00, cached: 0.30 },
 
   // Additional models not in the official pricing table (see extra-models.json)
@@ -75,4 +71,8 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'gemini-3.1-pro': { input: 2.00, output: 12.00, cached: 0.20, longContext: { thresholdTokens: 200000, input: 4.00, output: 18.00, cached: 0.40 } },
   'raptor-mini': { input: 0.25, output: 2.00, cached: 0.025 },
   'mai-code-1-flash': { input: 0.75, output: 4.50, cached: 0.075 },
+  'claude-opus-4-7': { input: 5.00, output: 25.00, cached: 0.50, cacheWrite: 6.25 },
+  'gemini-3.5-flash': { input: 1.50, output: 9.00, cached: 0.15 },
+  'gemini-3.6-flash': { input: 0.75, output: 3.75, cached: 0.075 },
+  'kimi-k2.7-code': { input: 0.95, output: 4.00, cached: 0.19 },
 };
