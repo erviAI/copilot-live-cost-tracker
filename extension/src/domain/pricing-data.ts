@@ -40,6 +40,7 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   // Google
   'gemini-3.7-flash': { input: 0.75, output: 3.75, cached: 0.075 },
   'gemini-3.8-flash': { input: 0.75, output: 3.75, cached: 0.075 },
+  'gemini-4-argon': { input: 2.00, output: 10.00, cached: 0.10 },
 
   // xAI
   'grok-4.5': { input: 2.00, output: 6.00, cached: 0.50, longContext: { thresholdTokens: 200000, input: 4.00, output: 12.00, cached: 1.00 } },
