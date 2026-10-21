@@ -21,6 +21,11 @@
     "claude-opus-4-7": { "input": 5, "output": 25, "cached": 0.5, "cacheWrite": 6.25, "deprecated": true },
     "gemini-3.5-flash": { "input": 1.5, "output": 9, "cached": 0.15, "deprecated": true },
     "gemini-3.6-flash": { "input": 0.75, "output": 3.75, "cached": 0.075, "deprecated": true },
-    "kimi-k2.7-code": { "input": 0.95, "output": 4, "cached": 0.19, "deprecated": true }
+    "kimi-k2.7-code": { "input": 0.95, "output": 4, "cached": 0.19, "deprecated": true },
+    "gpt-5-mini": { "input": 0.25, "output": 2, "cached": 0.025, "deprecated": true },
+    "gpt-5.4": { "input": 2.5, "output": 15, "cached": 0.25, "longContext": {"thresholdTokens":272000,"input":5,"output":22.5,"cached":0.5}, "deprecated": true },
+    "gpt-5.4-mini": { "input": 0.75, "output": 4.5, "cached": 0.075, "deprecated": true },
+    "gpt-5.5": { "input": 5, "output": 30, "cached": 0.5, "longContext": {"thresholdTokens":272000,"input":10,"output":45,"cached":1}, "deprecated": true },
+    "gemini-3.7-flash": { "input": 0.75, "output": 3.75, "cached": 0.075, "deprecated": true }
   }
 }
