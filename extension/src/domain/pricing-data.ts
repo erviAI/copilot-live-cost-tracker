@@ -18,6 +18,7 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'gpt-6-luna': { input: 0.10, output: 0.50, cached: 0.01, cacheWrite: 0.125, longContext: { thresholdTokens: 272000, input: 0.20, output: 0.75, cached: 0.02, cacheWrite: 0.25 } },
   'gpt-6-sol': { input: 2.00, output: 10.00, cached: 0.20, cacheWrite: 2.50, longContext: { thresholdTokens: 272000, input: 4.00, output: 15.00, cached: 0.40, cacheWrite: 5.00 } },
   'gpt-6.1-sol': { input: 2.00, output: 10.00, cached: 0.10, cacheWrite: 2.50, longContext: { thresholdTokens: 272000, input: 4.00, output: 15.00, cached: 0.20, cacheWrite: 5.00 } },
+  'gpt-6.1-terra': { input: 1.00, output: 5.00, cached: 0.05, cacheWrite: 1.25, longContext: { thresholdTokens: 272000, input: 2.00, output: 7.50, cached: 0.10, cacheWrite: 2.50 } },
 
   // Anthropic (includes cache write cost)
   'claude-haiku-4-5': { input: 1.00, output: 5.00, cached: 0.10, cacheWrite: 1.25 },
