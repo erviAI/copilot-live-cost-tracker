@@ -247,17 +247,17 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/better-sqlite3": "^7.6.0",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^24",
     "@types/vscode": "^1.144.0",
-    "@vitest/coverage-v8": "^4.1.11",
-    "@vscode/vsce": "^3.9.2",
+    "@vitest/coverage-v8": "^5.1.0",
+    "@vscode/vsce": "^4.1.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.14.0",
     "prettier": "^3.9.10",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.1",
-    "vitest": "^4.1.9"
+    "vitest": "^5.1.0"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
