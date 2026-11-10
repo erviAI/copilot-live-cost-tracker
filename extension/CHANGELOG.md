@@ -3,6 +3,14 @@
 All notable changes to the **Copilot Live Cost & Token Tracker** extension are
 documented in this file, with an emphasis on what changed for you, the user.
 
+## [1.8.7](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.8.6...v1.8.7) (2026-11-10)
+
+
+### Bug Fixes
+
+* **models:** add claude-fable-5-2, gpt-6.1-terra ([#124](https://github.com/erviAI/copilot-live-cost-tracker/issues/124)) ([33d2961](https://github.com/erviAI/copilot-live-cost-tracker/commit/33d296186f12dbc15d883db440e779d1456c907f))
+* **models:** add gemini-4-carbon ([#130](https://github.com/erviAI/copilot-live-cost-tracker/issues/130)) ([a5593fd](https://github.com/erviAI/copilot-live-cost-tracker/commit/a5593fdd0a2518c0f55ff887ffe560bc4f20d649))
+
 ## [1.8.6](https://github.com/erviAI/copilot-live-cost-tracker/compare/v1.8.5...v1.8.6) (2026-10-21)
 
 
