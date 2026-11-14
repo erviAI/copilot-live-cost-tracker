@@ -39,6 +39,7 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'gemini-3.8-flash': { input: 0.75, output: 3.75, cached: 0.075 },
   'gemini-4-argon': { input: 2.00, output: 10.00, cached: 0.10 },
   'gemini-4-carbon': { input: 2.00, output: 10.00, cached: 0.10 },
+  'gemini-4-hydrogen': { input: 1.50, output: 7.50, cached: 0.075 },
 
   // xAI
   'grok-4.5': { input: 2.00, output: 6.00, cached: 0.50, longContext: { thresholdTokens: 200000, input: 4.00, output: 12.00, cached: 1.00 } },
