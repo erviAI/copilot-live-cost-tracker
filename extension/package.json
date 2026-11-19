@@ -261,6 +261,6 @@
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
-    "chart.js": "^4.5.1"
+    "chart.js": "^4.6.1"
   }
 }
