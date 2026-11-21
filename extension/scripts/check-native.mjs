@@ -20,7 +20,8 @@ const require = createRequire(import.meta.url);
 /** Try to load the native binding. Returns the Error on failure, or null on success. */
 function tryLoad() {
   try {
-    require('better-sqlite3');
+    const Database = require('better-sqlite3');
+    new Database(':memory:').close();
     return null;
   } catch (err) {
     return err instanceof Error ? err : new Error(String(err));
