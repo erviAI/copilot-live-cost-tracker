@@ -11,8 +11,8 @@ the project and the checks your changes are expected to pass.
 
 ## Prerequisites
 
-- Node.js 20.x
-- npm 10.x
+- Node.js 24.x on your `PATH` (also used by the native SQLite worker)
+- npm 11.x
 
 ## Getting started
 
@@ -20,6 +20,10 @@ the project and the checks your changes are expected to pass.
 cd extension
 npm ci
 ```
+
+If `npm ci` fails because `node-gyp` cannot find a C++ toolchain, use
+`npm ci --ignore-scripts` on platforms for which `better-sqlite3` ships a
+prebuilt binary. Then run `npm run build` to verify that Node can load it.
 
 ## Development workflow
 
@@ -56,6 +60,11 @@ Dependabot raises grouped pull requests weekly. Dev-dependency patch and minor
 updates merge themselves once CI passes; production dependencies and every major
 are reviewed by hand. The grouping and ignore rules, with their rationale, live in
 [.github/dependabot.yml](.github/dependabot.yml).
+
+Keep `@types/vscode` pinned to the minimum VS Code version in `engines.vscode`
+so CI checks that the extension only uses APIs available at that minimum.
+The extension temporarily overrides `@vscode/vsce` 4.1.1's `minimatch` to use
+a patched major. Remove the override when VSCE declares a patched version itself.
 
 Auto-merge relies on two repository settings that are not visible in this repository:
 

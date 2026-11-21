@@ -24,6 +24,8 @@ updates:
         dependency-type: production
         update-types: [minor, patch]
     ignore:
+      # Update these types only when raising the minimum in engines.vscode.
+      - dependency-name: "@types/vscode"
       # Pin @types/node to the major matching VS Code's bundled Node (24).
       # Bumping past it would type against APIs absent at runtime.
       - dependency-name: "@types/node"
